@@ -1,0 +1,19 @@
+# Python FastAPI Backend
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+python-multipart>=0.0.6
+
+# Geospatial Libraries
+shapely>=2.0.0
+geopandas>=0.14.0
+scipy>=1.11.0
+pyproj>=3.6.0
+numpy>=1.26.0
+pandas>=2.1.0
+
+# Utilities
+geopy>=2.4.0
+python-dotenv>=1.0.0
+
+# CORS
+pydantic>=2.5.0

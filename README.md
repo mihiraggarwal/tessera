@@ -1,13 +1,17 @@
-# India Health Voronoi Locator
+# Tessera
 
-Interactive Streamlit app that:
-- Loads health facility locations from `geocode_health_centre.csv`
-- Samples up to 1000 facilities
-- Builds a Voronoi diagram over India
-- Lets you click on the map to see the nearest facility and simulate adding a new one
+Tessera is a Voronoi-based population mapping application that visualizes catchment areas for health facilities across India. Upload facility coordinates via CSV or use sample data, and the app computes Voronoi diagrams clipped to India's boundaries, showing each facility's geographic coverage area on an interactive map.
 
-## How to run locally
+## Tech Stack
+
+**Frontend:** Next.js 16 with React, TypeScript, Tailwind CSS, and Leaflet for map rendering. **Backend:** Python FastAPI with SciPy for Voronoi computation, Shapely/GeoPandas for geospatial processing, and PyProj for coordinate transformations.
+
+## Quick Start
 
 ```bash
-pip install -r requirements.txt
-streamlit run app.py
+# Backend
+cd backend && pip install -r requirements.txt && uvicorn app.main:app --reload --port 8000
+
+# Frontend
+cd frontend && npm install && npm run dev
+```

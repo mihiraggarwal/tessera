@@ -1,0 +1,316 @@
+"""
+Voronoi computation engine - core geospatial processing
+Uses a robust algorithm to handle infinite Voronoi regions.
+"""
+from typing import List, Tuple, Optional, Dict, Any
+import numpy as np
+from scipy.spatial import Voronoi
+from shapely.geometry import Polygon, MultiPolygon, box, Point
+from shapely.ops import unary_union
+import pyproj
+
+
+class VoronoiEngine:
+    """
+    Computes Voronoi diagrams with proper projection handling.
+    """
+    
+    # India approximate bounding box
+    INDIA_BOUNDS = {
+        "min_lng": 68.0,
+        "max_lng": 97.5,
+        "min_lat": 6.5,
+        "max_lat": 37.5,
+    }
+    
+    # Simplified India boundary polygon (approximate coastline)
+    # This is a simplified polygon that roughly follows India's actual borders
+    INDIA_POLYGON_WGS84 = [
+        (68.2, 23.6),   # Gujarat coast (Kutch)
+        (68.9, 22.2),   # Gujarat
+        (70.0, 20.7),   # Gujarat south
+        (72.6, 19.0),   # Mumbai coast
+        (73.8, 15.6),   # Goa
+        (74.8, 12.8),   # Karnataka coast
+        (75.2, 11.7),   # Kerala north
+        (76.5, 8.3),    # Kerala south tip
+        (77.5, 8.1),    # Cape Comorin
+        (78.1, 8.3),    # Tamil Nadu south
+        (79.8, 10.3),   # Tamil Nadu coast
+        (80.2, 13.1),   # Chennai
+        (81.5, 15.9),   # Andhra coast
+        (83.3, 18.0),   # Odisha coast
+        (86.0, 20.0),   # West Bengal coast
+        (88.0, 21.5),   # Kolkata region
+        (89.0, 22.0),   # Bangladesh border start
+        (88.9, 24.3),   # Bangladesh border
+        (88.2, 26.3),   # West Bengal north
+        (89.8, 28.0),   # Sikkim
+        (92.0, 27.8),   # Arunachal Pradesh
+        (97.0, 28.5),   # NE corner
+        (96.2, 27.0),   # Arunachal
+        (93.3, 24.0),   # Manipur/Mizoram
+        (91.5, 21.9),   # Myanmar border
+        (88.5, 21.5),   # Back to West Bengal
+        (88.0, 22.2),   # Kolkata again
+        (86.5, 21.3),   # Odisha
+        (85.5, 21.9),   # Jharkhand
+        (82.8, 25.4),   # Bihar
+        (80.0, 28.5),   # UP
+        (77.5, 30.5),   # Uttarakhand
+        (76.0, 32.5),   # HP
+        (74.5, 34.8),   # J&K
+        (73.9, 36.5),   # Northern tip
+        (74.0, 34.5),   # Back down
+        (71.0, 30.0),   # Punjab
+        (70.5, 27.5),   # Rajasthan
+        (69.5, 25.0),   # Gujarat north
+        (68.2, 23.6),   # Close polygon
+    ]
+    
+    # UTM zone 44N (covers central India) - good for most calculations
+    CRS_WGS84 = "EPSG:4326"
+    CRS_PROJECTED = "EPSG:32644"  # UTM zone 44N
+    
+    def __init__(self):
+        # Set up coordinate transformers
+        self.wgs84 = pyproj.CRS(self.CRS_WGS84)
+        self.projected = pyproj.CRS(self.CRS_PROJECTED)
+        
+        self.to_projected = pyproj.Transformer.from_crs(
+            self.wgs84, self.projected, always_xy=True
+        )
+        self.to_wgs84 = pyproj.Transformer.from_crs(
+            self.projected, self.wgs84, always_xy=True
+        )
+    
+    def _project_coords(self, coords: List[Tuple[float, float]]) -> np.ndarray:
+        """Project WGS84 coordinates to UTM"""
+        projected = []
+        for lng, lat in coords:
+            x, y = self.to_projected.transform(lng, lat)
+            projected.append([x, y])
+        return np.array(projected)
+    
+    def _unproject_coords(self, coords: np.ndarray) -> List[Tuple[float, float]]:
+        """Unproject UTM coordinates back to WGS84"""
+        unprojected = []
+        for x, y in coords:
+            lng, lat = self.to_wgs84.transform(x, y)
+            unprojected.append((lng, lat))
+        return unprojected
+    
+    def _get_bounding_box(self, coords: np.ndarray, buffer: float = 0.5) -> Polygon:
+        """
+        Create bounding box around coordinates with buffer.
+        Buffer is fraction of extent.
+        """
+        min_x, min_y = coords.min(axis=0)
+        max_x, max_y = coords.max(axis=0)
+        
+        width = max_x - min_x
+        height = max_y - min_y
+        
+        # Ensure minimum size
+        width = max(width, 100000)  # At least 100km
+        height = max(height, 100000)
+        
+        # Add buffer
+        buf_x = width * buffer
+        buf_y = height * buffer
+        
+        return box(
+            min_x - buf_x,
+            min_y - buf_y,
+            max_x + buf_x,
+            max_y + buf_y
+        )
+    
+    def _voronoi_regions(
+        self,
+        vor: Voronoi,
+        bounding_box: Polygon
+    ) -> List[Tuple[int, Polygon]]:
+        """
+        Reconstruct all Voronoi regions including infinite ones.
+        Extends infinite ridges to bounding box for proper clipping.
+        """
+        center = vor.points.mean(axis=0)
+        
+        # Compute a radius large enough to contain all points
+        ptp_bound = np.ptp(vor.points, axis=0)
+        radius = max(ptp_bound.max() * 3, 2000000)  # At least 2000km
+        
+        polygons = []
+        processed_points = set()
+        
+        for point_idx, region_idx in enumerate(vor.point_region):
+            region = vor.regions[region_idx]
+            
+            if not region:
+                continue
+            
+            if -1 not in region:
+                # Finite region - use vertices directly
+                vertices = vor.vertices[region]
+                try:
+                    poly = Polygon(vertices)
+                    if not poly.is_valid:
+                        poly = poly.buffer(0)
+                    if poly.is_valid:
+                        clipped = poly.intersection(bounding_box)
+                        if not clipped.is_empty and clipped.area > 0:
+                            if isinstance(clipped, MultiPolygon):
+                                clipped = max(clipped.geoms, key=lambda p: p.area)
+                            polygons.append((point_idx, clipped))
+                            processed_points.add(point_idx)
+                except:
+                    pass
+                continue
+            
+            # Infinite region - need to extend ridges to far points
+            # Find all ridges for this point
+            point_ridges = []
+            for ridge_idx, (p1, p2) in enumerate(vor.ridge_points):
+                if p1 == point_idx or p2 == point_idx:
+                    v1, v2 = vor.ridge_vertices[ridge_idx]
+                    other_point = p2 if p1 == point_idx else p1
+                    point_ridges.append((other_point, v1, v2))
+            
+            # Build vertices list with far points
+            vertices = []
+            far_points = []
+            
+            for other_point, v1, v2 in point_ridges:
+                if v1 >= 0:
+                    vertices.append(vor.vertices[v1])
+                if v2 >= 0:
+                    vertices.append(vor.vertices[v2])
+                
+                # Handle infinite vertex
+                if v1 == -1 or v2 == -1:
+                    finite_v = v2 if v1 == -1 else v1
+                    if finite_v >= 0:
+                        # Compute direction for infinite ray
+                        t = vor.points[other_point] - vor.points[point_idx]
+                        t = t / np.linalg.norm(t)
+                        n = np.array([-t[1], t[0]])
+                        
+                        midpoint = (vor.points[point_idx] + vor.points[other_point]) / 2
+                        direction = np.sign(np.dot(midpoint - center, n)) * n
+                        
+                        far_point = vor.vertices[finite_v] + direction * radius
+                        far_points.append(far_point)
+            
+            # Combine all vertices
+            all_vertices = list(vertices) + far_points
+            
+            if len(all_vertices) >= 3:
+                try:
+                    # Sort vertices by angle around the point
+                    point_center = vor.points[point_idx]
+                    angles = [np.arctan2(v[1] - point_center[1], v[0] - point_center[0]) for v in all_vertices]
+                    sorted_vertices = [v for _, v in sorted(zip(angles, all_vertices))]
+                    
+                    poly = Polygon(sorted_vertices)
+                    if not poly.is_valid:
+                        poly = poly.buffer(0)
+                    if poly.is_valid and not poly.is_empty:
+                        clipped = poly.intersection(bounding_box)
+                        if not clipped.is_empty and clipped.area > 0:
+                            if isinstance(clipped, MultiPolygon):
+                                clipped = max(clipped.geoms, key=lambda p: p.area)
+                            polygons.append((point_idx, clipped))
+                            processed_points.add(point_idx)
+                except:
+                    pass
+        
+        # Fallback: For any points that didn't get a polygon, create buffer circles
+        for point_idx in range(len(vor.points)):
+            if point_idx not in processed_points:
+                pt = Point(vor.points[point_idx])
+                buffer_size = radius / len(vor.points) * 0.3
+                poly = pt.buffer(buffer_size, resolution=32)
+                clipped = poly.intersection(bounding_box)
+                if not clipped.is_empty and clipped.area > 0:
+                    if isinstance(clipped, MultiPolygon):
+                        clipped = max(clipped.geoms, key=lambda p: p.area)
+                    polygons.append((point_idx, clipped))
+        
+        return polygons
+    
+    def compute_voronoi(
+        self,
+        coords: List[Tuple[float, float]],
+        names: List[str],
+        facility_ids: List[str],
+        types: Optional[List[str]] = None,
+        clip_to_india: bool = True
+    ) -> Dict[str, Any]:
+        """
+        Compute Voronoi diagram and return as GeoJSON.
+        
+        Args:
+            coords: List of (longitude, latitude) tuples
+            names: Facility names
+            facility_ids: Facility IDs
+            types: Optional facility types
+            clip_to_india: Whether to clip to India bounds
+            
+        Returns:
+            GeoJSON FeatureCollection
+        """
+        if len(coords) < 3:
+            raise ValueError("Need at least 3 points for Voronoi")
+        
+        # Project coordinates to UTM for accurate computation
+        projected_coords = self._project_coords(coords)
+        
+        # Compute Voronoi diagram
+        vor = Voronoi(projected_coords)
+        
+        # Get bounding polygon for clipping
+        if clip_to_india:
+            # Project India polygon coordinates
+            projected_india = []
+            for lng, lat in self.INDIA_POLYGON_WGS84:
+                x, y = self.to_projected.transform(lng, lat)
+                projected_india.append((x, y))
+            bounding_box = Polygon(projected_india)
+            if not bounding_box.is_valid:
+                bounding_box = bounding_box.buffer(0)
+        else:
+            bounding_box = self._get_bounding_box(projected_coords, buffer=0.5)
+        
+        # Convert to polygons clipped to bounding box
+        polygons = self._voronoi_regions(vor, bounding_box)
+        
+        # Build GeoJSON features
+        features = []
+        for point_idx, polygon in polygons:
+            # Unproject polygon coordinates back to WGS84
+            exterior_coords = list(polygon.exterior.coords)
+            unprojected_exterior = self._unproject_coords(np.array(exterior_coords))
+            
+            feature = {
+                "type": "Feature",
+                "id": facility_ids[point_idx] if point_idx < len(facility_ids) else str(point_idx),
+                "properties": {
+                    "name": names[point_idx] if point_idx < len(names) else f"Facility_{point_idx}",
+                    "facility_id": facility_ids[point_idx] if point_idx < len(facility_ids) else str(point_idx),
+                    "type": types[point_idx] if types and point_idx < len(types) else None,
+                    "area_sq_km": polygon.area / 1_000_000,  # Convert from sq meters
+                    "centroid_lng": coords[point_idx][0],
+                    "centroid_lat": coords[point_idx][1],
+                },
+                "geometry": {
+                    "type": "Polygon",
+                    "coordinates": [unprojected_exterior]
+                }
+            }
+            features.append(feature)
+        
+        return {
+            "type": "FeatureCollection",
+            "features": features
+        }
