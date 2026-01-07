@@ -22,12 +22,31 @@ export interface Facility {
 export interface VoronoiRequest {
     facilities: Facility[];
     clip_to_india: boolean;
+    include_population?: boolean;
+}
+
+export interface PopulationBreakdown {
+    district: string;
+    state: string;
+    intersection_area_km2: number;
+    overlap_percentage: number;
+    contributed_population: number;
 }
 
 export interface GeoJSONFeature {
     type: 'Feature';
     id?: string;
-    properties: Record<string, unknown>;
+    properties: {
+        name?: string;
+        facility_id?: string;
+        type?: string;
+        area_sq_km?: number;
+        centroid_lat?: number;
+        centroid_lng?: number;
+        population?: number;
+        population_breakdown?: PopulationBreakdown[];
+        [key: string]: unknown;
+    };
     geometry: {
         type: string;
         coordinates: number[][][] | number[][];
@@ -82,6 +101,17 @@ export const boundariesApi = {
 
     getBoundaries: async (level: 'state' | 'district'): Promise<GeoJSONFeatureCollection> => {
         const response = await api.get(`/api/boundaries/${level}`);
+        return response.data;
+    },
+};
+
+export const populationApi = {
+    getDistrictBoundaries: async (): Promise<GeoJSONFeatureCollection> => {
+        const response = await api.get('/api/population/districts');
+        return response.data;
+    },
+    getStateBoundaries: async (): Promise<GeoJSONFeatureCollection> => {
+        const response = await api.get('/api/population/states');
         return response.data;
     },
 };

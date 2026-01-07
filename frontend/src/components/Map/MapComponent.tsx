@@ -21,10 +21,24 @@ L.Marker.prototype.options.icon = DefaultIcon;
 interface MapProps {
     facilities?: Facility[];
     voronoiData?: GeoJSONFeatureCollection;
+    districtData?: GeoJSONFeatureCollection;
+    showDistricts?: boolean;
     center?: [number, number];
     zoom?: number;
     onMapClick?: (lat: number, lng: number) => void;
 }
+
+// Population coloring (Yellow -> Red)
+const getPopulationColor = (pop: number): string => {
+    return pop > 10000000 ? '#800026' :
+        pop > 5000000 ? '#BD0026' :
+            pop > 2000000 ? '#E31A1C' :
+                pop > 1000000 ? '#FC4E2A' :
+                    pop > 500000 ? '#FD8D3C' :
+                        pop > 200000 ? '#FEB24C' :
+                            pop > 100000 ? '#FED976' :
+                                '#FFEDA0';
+};
 
 // Random color generator for Voronoi cells
 const getRandomColor = (seed: number): string => {
@@ -39,6 +53,8 @@ const getRandomColor = (seed: number): string => {
 export default function MapComponent({
     facilities = [],
     voronoiData,
+    districtData,
+    showDistricts = false,
     center = [20.5937, 78.9629], // Center of India
     zoom = 5,
     onMapClick,
@@ -47,6 +63,7 @@ export default function MapComponent({
     const mapContainerRef = useRef<HTMLDivElement>(null);
     const markersLayerRef = useRef<L.LayerGroup | null>(null);
     const voronoiLayerRef = useRef<L.LayerGroup | null>(null);
+    const districtsLayerRef = useRef<L.LayerGroup | null>(null);
 
     // Initialize map
     useEffect(() => {
@@ -61,8 +78,9 @@ export default function MapComponent({
         }).addTo(map);
 
         // Create layer groups
-        markersLayerRef.current = L.layerGroup().addTo(map);
-        voronoiLayerRef.current = L.layerGroup().addTo(map);
+        districtsLayerRef.current = L.layerGroup().addTo(map);  // Bottom layer
+        voronoiLayerRef.current = L.layerGroup().addTo(map);    // Middle layer
+        markersLayerRef.current = L.layerGroup().addTo(map);    // Top layer
 
         // Map click handler
         if (onMapClick) {
@@ -120,27 +138,68 @@ export default function MapComponent({
                         (coord) => [coord[1], coord[0]] as [number, number]
                     );
 
+                    const props = feature.properties;
+                    const hasPop = props.population !== undefined;
+
                     const polygon = L.polygon(coords, {
                         color: '#2c3e50',
                         weight: 1,
-                        fillColor: getRandomColor(index),
-                        fillOpacity: 0.3,
+                        // Use population color if available, otherwise random
+                        fillColor: hasPop ? getPopulationColor(props.population as number) : getRandomColor(index),
+                        fillOpacity: 0.5,
                     });
 
-                    const props = feature.properties;
-                    polygon.bindPopup(`
-            <div class="p-2">
-              <strong>${props.name || 'Unknown'}</strong>
-              ${props.type ? `<br><span class="text-gray-600">Type: ${props.type}</span>` : ''}
-              ${props.area_sq_km ? `<br><span class="text-gray-500">Area: ${(props.area_sq_km as number).toFixed(1)} km²</span>` : ''}
-            </div>
-          `);
+                    let popupContent = `
+                        <div class="p-2 min-w-[200px]">
+                            <h3 class="font-bold text-lg mb-1">${props.name || 'Unknown'}</h3>
+                            <div class="text-sm space-y-1">
+                                ${props.type ? `<div class="text-gray-600">Type: ${props.type}</div>` : ''}
+                                ${props.area_sq_km ? `<div>Area: <span class="font-medium">${(props.area_sq_km as number).toLocaleString(undefined, { maximumFractionDigits: 0 })} km²</span></div>` : ''}
+                                
+                                ${hasPop ? `
+                                    <div class="mt-3 pt-2 border-t border-gray-200">
+                                        <div class="font-semibold text-blue-600">Total Population: ${(props.population as number).toLocaleString()}</div>
+                                        <div class="text-xs text-gray-500 mt-1">Top Districts:</div>
+                                        <ul class="list-disc list-inside pl-1 text-xs text-gray-700 mt-1">
+                                            ${(props.population_breakdown as any[] || []).map(b =>
+                        `<li>${b.district}: ${b.contributed_population.toLocaleString()}</li>`
+                    ).join('')}
+                                        </ul>
+                                    </div>
+                                ` : ''}
+                            </div>
+                        </div>
+                    `;
 
+                    polygon.bindPopup(popupContent);
                     polygon.addTo(voronoiLayerRef.current!);
                 }
             });
         }
     }, [voronoiData]);
+
+    // Update Districts layer
+    useEffect(() => {
+        if (!districtsLayerRef.current) return;
+
+        districtsLayerRef.current.clearLayers();
+
+        if (showDistricts && districtData && districtData.features) {
+            districtData.features.forEach((feature) => {
+                if (feature.geometry && (feature.geometry.type === 'Polygon' || feature.geometry.type === 'MultiPolygon')) {
+                    // Create GeoJSON layer for simplicity in handling MultiPolygons
+                    L.geoJSON(feature as any, {
+                        style: {
+                            color: '#666',
+                            weight: 1,
+                            fillOpacity: 0, // Transparent fill, just borders
+                            dashArray: '3'
+                        }
+                    }).addTo(districtsLayerRef.current!);
+                }
+            });
+        }
+    }, [showDistricts, districtData]);
 
     // Update map center/zoom
     useEffect(() => {

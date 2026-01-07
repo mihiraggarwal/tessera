@@ -3,7 +3,8 @@
 import { useState, useCallback } from 'react';
 import dynamic from 'next/dynamic';
 import FileUpload from '@/components/FileUpload';
-import { voronoiApi, type Facility, type GeoJSONFeatureCollection } from '@/lib/api';
+import { voronoiApi, populationApi, type Facility, type GeoJSONFeatureCollection } from '@/lib/api';
+import { exportToPNG, exportToGeoJSON } from '@/lib/export';
 
 // Dynamic import for Map (no SSR)
 const MapComponent = dynamic(() => import('@/components/Map'), {
@@ -21,7 +22,12 @@ export default function Home() {
   const [isComputing, setIsComputing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showVoronoi, setShowVoronoi] = useState(true);
+  const [boundaryLevel, setBoundaryLevel] = useState<'none' | 'state' | 'district'>('none');
+  const [stateData, setStateData] = useState<GeoJSONFeatureCollection | undefined>(undefined);
+  const [districtData, setDistrictData] = useState<GeoJSONFeatureCollection | undefined>(undefined);
   const [apiStatus, setApiStatus] = useState<'unknown' | 'online' | 'offline'>('unknown');
+  const [isExporting, setIsExporting] = useState(false);
+  const [isLoadingBoundaries, setIsLoadingBoundaries] = useState(false);
 
   // Handle uploaded facilities
   const handleUploadSuccess = useCallback((uploadedFacilities: Facility[]) => {
@@ -33,6 +39,38 @@ export default function Home() {
   const handleUploadError = useCallback((errorMessage: string) => {
     setError(errorMessage);
   }, []);
+
+  // Change boundary level
+  const handleBoundaryChange = useCallback(async (level: 'none' | 'state' | 'district') => {
+    setBoundaryLevel(level);
+    setError(null);
+
+    if (level === 'state' && !stateData) {
+      setIsLoadingBoundaries(true);
+      try {
+        const data = await populationApi.getStateBoundaries();
+        setStateData(data);
+      } catch (err) {
+        console.error('Failed to load states', err);
+        setError('Failed to load state boundaries');
+        setBoundaryLevel('none');
+      } finally {
+        setIsLoadingBoundaries(false);
+      }
+    } else if (level === 'district' && !districtData) {
+      setIsLoadingBoundaries(true);
+      try {
+        const data = await populationApi.getDistrictBoundaries();
+        setDistrictData(data);
+      } catch (err) {
+        console.error('Failed to load districts', err);
+        setError('Failed to load district boundaries');
+        setBoundaryLevel('none');
+      } finally {
+        setIsLoadingBoundaries(false);
+      }
+    }
+  }, [stateData, districtData]);
 
   // Compute Voronoi diagram
   const computeVoronoi = useCallback(async () => {
@@ -48,6 +86,7 @@ export default function Home() {
       const result = await voronoiApi.compute({
         facilities,
         clip_to_india: true,
+        include_population: true,
       });
       setVoronoiData(result);
       setApiStatus('online');
@@ -93,6 +132,27 @@ export default function Home() {
     }
   }, []);
 
+  // Export handlers
+  const handleExportPNG = useCallback(async () => {
+    setIsExporting(true);
+    setError(null);
+    try {
+      await exportToPNG('map-container', 'tessera-voronoi-map.png');
+    } catch (err) {
+      setError('Failed to export PNG');
+    } finally {
+      setIsExporting(false);
+    }
+  }, []);
+
+  const handleExportGeoJSON = useCallback(() => {
+    if (!voronoiData) {
+      setError('No Voronoi data to export');
+      return;
+    }
+    exportToGeoJSON(voronoiData, 'tessera-voronoi.geojson');
+  }, [voronoiData]);
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
       {/* Header */}
@@ -113,12 +173,12 @@ export default function Home() {
 
             <div className="flex items-center gap-3">
               <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm ${apiStatus === 'online' ? 'bg-green-100 text-green-700' :
-                  apiStatus === 'offline' ? 'bg-red-100 text-red-700' :
-                    'bg-gray-100 text-gray-600'
+                apiStatus === 'offline' ? 'bg-red-100 text-red-700' :
+                  'bg-gray-100 text-gray-600'
                 }`}>
                 <span className={`w-2 h-2 rounded-full ${apiStatus === 'online' ? 'bg-green-500' :
-                    apiStatus === 'offline' ? 'bg-red-500' :
-                      'bg-gray-400'
+                  apiStatus === 'offline' ? 'bg-red-500' :
+                    'bg-gray-400'
                   }`} />
                 {apiStatus === 'online' ? 'API Connected' :
                   apiStatus === 'offline' ? 'API Offline' :
@@ -176,12 +236,26 @@ export default function Home() {
                   </button>
                 </div>
 
+                <div className="flex items-center justify-between">
+                  <label className="text-gray-700">Boundaries</label>
+                  <select
+                    value={boundaryLevel}
+                    onChange={(e) => handleBoundaryChange(e.target.value as 'none' | 'state' | 'district')}
+                    disabled={isLoadingBoundaries}
+                    className="bg-gray-50 border border-gray-300 text-gray-700 text-sm rounded-lg px-3 py-1.5 focus:ring-blue-500 focus:border-blue-500"
+                  >
+                    <option value="none">None</option>
+                    <option value="state">States</option>
+                    <option value="district">Districts</option>
+                  </select>
+                </div>
+
                 <button
                   onClick={computeVoronoi}
                   disabled={facilities.length < 3 || isComputing}
                   className={`w-full py-3 px-4 rounded-xl font-semibold text-white transition-all ${facilities.length >= 3 && !isComputing
-                      ? 'bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 shadow-lg shadow-blue-500/25'
-                      : 'bg-gray-300 cursor-not-allowed'
+                    ? 'bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 shadow-lg shadow-blue-500/25'
+                    : 'bg-gray-300 cursor-not-allowed'
                     }`}
                 >
                   {isComputing ? (
@@ -196,6 +270,31 @@ export default function Home() {
                     'Compute Voronoi Diagram'
                   )}
                 </button>
+
+                {/* Export Buttons */}
+                {voronoiData && (
+                  <div className="flex gap-2 mt-2">
+                    <button
+                      onClick={handleExportPNG}
+                      disabled={isExporting}
+                      className="flex-1 py-2 px-3 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 flex items-center justify-center gap-1"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                      </svg>
+                      PNG
+                    </button>
+                    <button
+                      onClick={handleExportGeoJSON}
+                      className="flex-1 py-2 px-3 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-1"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                      </svg>
+                      GeoJSON
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -214,11 +313,42 @@ export default function Home() {
 
           {/* Map */}
           <div className="lg:col-span-2">
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-4 h-[700px]">
+            <div id="map-container" className="bg-white rounded-2xl shadow-sm border border-gray-200 p-4 h-[700px] relative">
               <MapComponent
                 facilities={facilities}
                 voronoiData={showVoronoi ? voronoiData ?? undefined : undefined}
+                districtData={boundaryLevel === 'state' ? stateData : boundaryLevel === 'district' ? districtData : undefined}
+                showDistricts={boundaryLevel !== 'none'}
               />
+
+              {/* Population Legend */}
+              {voronoiData && showVoronoi && (
+                <div className="absolute bottom-6 right-6 bg-white/95 backdrop-blur-sm rounded-lg shadow-lg p-3 text-xs border border-gray-200">
+                  <div className="font-semibold text-gray-700 mb-2">Population</div>
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <div className="w-4 h-3 rounded" style={{ backgroundColor: '#800026' }}></div>
+                      <span>&gt; 10M</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-4 h-3 rounded" style={{ backgroundColor: '#E31A1C' }}></div>
+                      <span>2M - 10M</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-4 h-3 rounded" style={{ backgroundColor: '#FD8D3C' }}></div>
+                      <span>500K - 2M</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-4 h-3 rounded" style={{ backgroundColor: '#FED976' }}></div>
+                      <span>100K - 500K</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-4 h-3 rounded" style={{ backgroundColor: '#FFEDA0' }}></div>
+                      <span>&lt; 100K</span>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>

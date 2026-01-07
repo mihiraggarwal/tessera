@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from app.services.voronoi_engine import VoronoiEngine
+from app.services.population_calc import PopulationService
 
 router = APIRouter()
 
@@ -23,6 +24,7 @@ class VoronoiRequest(BaseModel):
     """Request to compute Voronoi diagram"""
     facilities: List[Facility]
     clip_to_india: bool = True
+    include_population: bool = False
 
 
 class VoronoiResponse(BaseModel):
@@ -60,6 +62,19 @@ async def compute_voronoi(request: VoronoiRequest):
             types=types,
             clip_to_india=request.clip_to_india
         )
+        
+        if request.include_population:
+            pop_service = PopulationService()
+            pop_data = pop_service.calculate_weighted_population(geojson['features'])
+            
+            # Merge population data into features
+            for feature in geojson['features']:
+                fid = feature['properties']['facility_id']
+                # find matching population result
+                match = next((p for p in pop_data if str(p['facility_id']) == str(fid)), None)
+                if match:
+                    feature['properties']['population'] = match['total_population']
+                    feature['properties']['population_breakdown'] = match['breakdown']
         
         return VoronoiResponse(**geojson)
     
