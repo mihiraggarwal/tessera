@@ -440,41 +440,44 @@ export default function Home() {
             )}
           </div>
 
-          {/* Map */}
+          {/* Map + Legend Row */}
           <div className="lg:col-span-2">
-            <div id="map-container" className="bg-white rounded-2xl shadow-sm border border-gray-200 p-4 h-[700px] relative">
-              <MapComponent
-                facilities={displayedFacilities}
-                voronoiData={showVoronoi ? voronoiData ?? undefined : undefined}
-                districtData={boundaryLevel === 'state' ? stateData : boundaryLevel === 'district' ? districtData : undefined}
-                showDistricts={boundaryLevel !== 'none'}
-                flyTo={mapCenter}
-              />
+            <div className="flex gap-4">
+              {/* Map */}
+              <div id="map-container" className="flex-1 bg-white rounded-2xl shadow-sm border border-gray-200 p-4 h-[700px] min-w-0">
+                <MapComponent
+                  facilities={displayedFacilities}
+                  voronoiData={showVoronoi ? voronoiData ?? undefined : undefined}
+                  districtData={boundaryLevel === 'state' ? stateData : boundaryLevel === 'district' ? districtData : undefined}
+                  showDistricts={boundaryLevel !== 'none'}
+                  flyTo={mapCenter}
+                />
+              </div>
 
-              {/* Population Legend */}
+              {/* Population Legend - Side Panel */}
               {voronoiData && showVoronoi && (
-                <div className="absolute bottom-6 right-6 bg-white/95 backdrop-blur-sm rounded-lg shadow-lg p-3 text-xs border border-gray-200">
-                  <div className="font-semibold text-gray-700 mb-2">Population</div>
-                  <div className="space-y-1">
+                <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-4 flex-shrink-0 w-32 h-44 self-start">
+                  <div className="font-semibold text-black mb-3 text-sm">Population</div>
+                  <div className="space-y-2">
                     <div className="flex items-center gap-2">
                       <div className="w-4 h-3 rounded" style={{ backgroundColor: '#800026' }}></div>
-                      <span>&gt; 10M</span>
+                      <span className="text-xs text-black">&gt; 10M</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <div className="w-4 h-3 rounded" style={{ backgroundColor: '#E31A1C' }}></div>
-                      <span>2M - 10M</span>
+                      <span className="text-xs text-black">2M - 10M</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <div className="w-4 h-3 rounded" style={{ backgroundColor: '#FD8D3C' }}></div>
-                      <span>500K - 2M</span>
+                      <span className="text-xs text-black">500K - 2M</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <div className="w-4 h-3 rounded" style={{ backgroundColor: '#FED976' }}></div>
-                      <span>100K - 500K</span>
+                      <span className="text-xs text-black">100K - 500K</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <div className="w-4 h-3 rounded" style={{ backgroundColor: '#FFEDA0' }}></div>
-                      <span>&lt; 100K</span>
+                      <span className="text-xs text-black">&lt; 100K</span>
                     </div>
                   </div>
                 </div>
