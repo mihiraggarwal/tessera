@@ -4,9 +4,11 @@ Uses a robust algorithm to handle infinite Voronoi regions.
 """
 from typing import List, Tuple, Optional, Dict, Any
 import numpy as np
+import os
 from scipy.spatial import Voronoi
 from shapely.geometry import Polygon, MultiPolygon, box, Point
 from shapely.ops import unary_union
+import geopandas as gpd
 import pyproj
 
 
@@ -23,54 +25,13 @@ class VoronoiEngine:
         "max_lat": 37.5,
     }
     
-    # Simplified India boundary polygon (approximate coastline)
-    # This is a simplified polygon that roughly follows India's actual borders
-    INDIA_POLYGON_WGS84 = [
-        (68.2, 23.6),   # Gujarat coast (Kutch)
-        (68.9, 22.2),   # Gujarat
-        (70.0, 20.7),   # Gujarat south
-        (72.6, 19.0),   # Mumbai coast
-        (73.8, 15.6),   # Goa
-        (74.8, 12.8),   # Karnataka coast
-        (75.2, 11.7),   # Kerala north
-        (76.5, 8.3),    # Kerala south tip
-        (77.5, 8.1),    # Cape Comorin
-        (78.1, 8.3),    # Tamil Nadu south
-        (79.8, 10.3),   # Tamil Nadu coast
-        (80.2, 13.1),   # Chennai
-        (81.5, 15.9),   # Andhra coast
-        (83.3, 18.0),   # Odisha coast
-        (86.0, 20.0),   # West Bengal coast
-        (88.0, 21.5),   # Kolkata region
-        (89.0, 22.0),   # Bangladesh border start
-        (88.9, 24.3),   # Bangladesh border
-        (88.2, 26.3),   # West Bengal north
-        (89.8, 28.0),   # Sikkim
-        (92.0, 27.8),   # Arunachal Pradesh
-        (97.0, 28.5),   # NE corner
-        (96.2, 27.0),   # Arunachal
-        (93.3, 24.0),   # Manipur/Mizoram
-        (91.5, 21.9),   # Myanmar border
-        (88.5, 21.5),   # Back to West Bengal
-        (88.0, 22.2),   # Kolkata again
-        (86.5, 21.3),   # Odisha
-        (85.5, 21.9),   # Jharkhand
-        (82.8, 25.4),   # Bihar
-        (80.0, 28.5),   # UP
-        (77.5, 30.5),   # Uttarakhand
-        (76.0, 32.5),   # HP
-        (74.5, 34.8),   # J&K
-        (73.9, 36.5),   # Northern tip
-        (74.0, 34.5),   # Back down
-        (71.0, 30.0),   # Punjab
-        (70.5, 27.5),   # Rajasthan
-        (69.5, 25.0),   # Gujarat north
-        (68.2, 23.6),   # Close polygon
-    ]
-    
     # UTM zone 44N (covers central India) - good for most calculations
     CRS_WGS84 = "EPSG:4326"
     CRS_PROJECTED = "EPSG:32644"  # UTM zone 44N
+    
+    # Cached India boundary geometry (loaded from shapefile)
+    _india_boundary_wgs84 = None
+    _india_boundary_projected = None
     
     def __init__(self):
         # Set up coordinate transformers
@@ -83,6 +44,54 @@ class VoronoiEngine:
         self.to_wgs84 = pyproj.Transformer.from_crs(
             self.projected, self.wgs84, always_xy=True
         )
+        
+        # Load India boundary from shapefile on first instantiation
+        self._load_india_boundary()
+    
+    def _load_india_boundary(self):
+        """Load India boundary from shapefile and cache it."""
+        if VoronoiEngine._india_boundary_wgs84 is not None:
+            return  # Already loaded
+        
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        shapefile_path = os.path.join(base_dir, "data", "boundaries", "india_st.shp")
+        
+        if not os.path.exists(shapefile_path):
+            print(f"Warning: India shapefile not found at {shapefile_path}")
+            print("Falling back to bounding box for clipping.")
+            return
+        
+        try:
+            # Load the shapefile
+            gdf = gpd.read_file(shapefile_path)
+            
+            # Ensure CRS is WGS84
+            if gdf.crs is None:
+                gdf = gdf.set_crs("EPSG:4326")
+            elif gdf.crs.to_epsg() != 4326:
+                gdf = gdf.to_crs("EPSG:4326")
+            
+            # Dissolve all state geometries into a single unified boundary
+            unified_boundary = unary_union(gdf.geometry)
+            
+            # Handle invalid geometries
+            if not unified_boundary.is_valid:
+                unified_boundary = unified_boundary.buffer(0)
+            
+            VoronoiEngine._india_boundary_wgs84 = unified_boundary
+            
+            # Also create projected version for Voronoi clipping
+            gdf_projected = gdf.to_crs(self.CRS_PROJECTED)
+            projected_boundary = unary_union(gdf_projected.geometry)
+            if not projected_boundary.is_valid:
+                projected_boundary = projected_boundary.buffer(0)
+            VoronoiEngine._india_boundary_projected = projected_boundary
+            
+            print(f"Loaded India boundary from shapefile ({len(gdf)} states)")
+            
+        except Exception as e:
+            print(f"Error loading India shapefile: {e}")
+            print("Falling back to bounding box for clipping.")
     
     def _project_coords(self, coords: List[Tuple[float, float]]) -> np.ndarray:
         """Project WGS84 coordinates to UTM"""
@@ -270,15 +279,9 @@ class VoronoiEngine:
         vor = Voronoi(projected_coords)
         
         # Get bounding polygon for clipping
-        if clip_to_india:
-            # Project India polygon coordinates
-            projected_india = []
-            for lng, lat in self.INDIA_POLYGON_WGS84:
-                x, y = self.to_projected.transform(lng, lat)
-                projected_india.append((x, y))
-            bounding_box = Polygon(projected_india)
-            if not bounding_box.is_valid:
-                bounding_box = bounding_box.buffer(0)
+        if clip_to_india and VoronoiEngine._india_boundary_projected is not None:
+            # Use the cached India boundary from shapefile
+            bounding_box = VoronoiEngine._india_boundary_projected
         else:
             bounding_box = self._get_bounding_box(projected_coords, buffer=0.5)
         
