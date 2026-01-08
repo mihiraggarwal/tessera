@@ -93,6 +93,46 @@ class VoronoiEngine:
             print(f"Error loading India shapefile: {e}")
             print("Falling back to bounding box for clipping.")
     
+    def _get_state_boundary(self, state_name: str) -> Optional[Polygon]:
+        """Load boundary for a specific state from states.geojson."""
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        geojson_path = os.path.join(base_dir, "data", "states.geojson")
+        
+        if not os.path.exists(geojson_path):
+            return None
+        
+        try:
+            gdf = gpd.read_file(geojson_path)
+            
+            # Ensure CRS is WGS84
+            if gdf.crs is None:
+                gdf = gdf.set_crs("EPSG:4326")
+            elif gdf.crs.to_epsg() != 4326:
+                gdf = gdf.to_crs("EPSG:4326")
+            
+            # Find the state (case-insensitive)
+            state_gdf = gdf[gdf['state'].str.lower() == state_name.lower()]
+            
+            if len(state_gdf) == 0:
+                return None
+            
+            # Get the geometry and project it
+            state_geom = state_gdf.iloc[0].geometry
+            if not state_geom.is_valid:
+                state_geom = state_geom.buffer(0)
+            
+            # Project to UTM for Voronoi clipping
+            state_gdf_proj = state_gdf.to_crs(self.CRS_PROJECTED)
+            projected_geom = state_gdf_proj.iloc[0].geometry
+            if not projected_geom.is_valid:
+                projected_geom = projected_geom.buffer(0)
+            
+            return projected_geom
+            
+        except Exception as e:
+            print(f"Error loading state boundary: {e}")
+            return None
+    
     def _project_coords(self, coords: List[Tuple[float, float]]) -> np.ndarray:
         """Project WGS84 coordinates to UTM"""
         projected = []
@@ -254,7 +294,8 @@ class VoronoiEngine:
         names: List[str],
         facility_ids: List[str],
         types: Optional[List[str]] = None,
-        clip_to_india: bool = True
+        clip_to_india: bool = True,
+        state_filter: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Compute Voronoi diagram and return as GeoJSON.
@@ -265,6 +306,7 @@ class VoronoiEngine:
             facility_ids: Facility IDs
             types: Optional facility types
             clip_to_india: Whether to clip to India bounds
+            state_filter: Optional state name to clip to (overrides clip_to_india)
             
         Returns:
             GeoJSON FeatureCollection
@@ -279,7 +321,18 @@ class VoronoiEngine:
         vor = Voronoi(projected_coords)
         
         # Get bounding polygon for clipping
-        if clip_to_india and VoronoiEngine._india_boundary_projected is not None:
+        if state_filter:
+            # Use state boundary for clipping
+            state_boundary = self._get_state_boundary(state_filter)
+            if state_boundary is not None:
+                bounding_box = state_boundary
+            else:
+                print(f"Warning: State '{state_filter}' not found, falling back to India boundary")
+                if clip_to_india and VoronoiEngine._india_boundary_projected is not None:
+                    bounding_box = VoronoiEngine._india_boundary_projected
+                else:
+                    bounding_box = self._get_bounding_box(projected_coords, buffer=0.5)
+        elif clip_to_india and VoronoiEngine._india_boundary_projected is not None:
             # Use the cached India boundary from shapefile
             bounding_box = VoronoiEngine._india_boundary_projected
         else:

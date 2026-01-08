@@ -26,6 +26,7 @@ interface MapProps {
     center?: [number, number];
     zoom?: number;
     onMapClick?: (lat: number, lng: number) => void;
+    flyTo?: { lat: number; lng: number; zoom: number } | null;
 }
 
 // Population coloring (Yellow -> Red)
@@ -58,6 +59,7 @@ export default function MapComponent({
     center = [20.5937, 78.9629], // Center of India
     zoom = 5,
     onMapClick,
+    flyTo,
 }: MapProps) {
     const mapRef = useRef<L.Map | null>(null);
     const mapContainerRef = useRef<HTMLDivElement>(null);
@@ -207,6 +209,15 @@ export default function MapComponent({
             mapRef.current.setView(center, zoom);
         }
     }, [center, zoom]);
+
+    // Handle flyTo navigation
+    useEffect(() => {
+        if (mapRef.current && flyTo) {
+            mapRef.current.flyTo([flyTo.lat, flyTo.lng], flyTo.zoom, {
+                duration: 1,
+            });
+        }
+    }, [flyTo]);
 
     return (
         <div

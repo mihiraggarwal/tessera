@@ -94,6 +94,75 @@ async def get_india_boundary():
     return _load_india_boundary()
 
 
+# Cache for states GeoDataFrame
+_states_gdf = None
+
+
+def _load_states_gdf():
+    """Load states GeoDataFrame from shapefile."""
+    global _states_gdf
+    
+    if _states_gdf is not None:
+        return _states_gdf
+    
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    geojson_path = os.path.join(base_dir, "data", "states.geojson")
+    
+    if not os.path.exists(geojson_path):
+        return None
+    
+    try:
+        _states_gdf = gpd.read_file(geojson_path)
+        if _states_gdf.crs is None:
+            _states_gdf = _states_gdf.set_crs("EPSG:4326")
+        elif _states_gdf.crs.to_epsg() != 4326:
+            _states_gdf = _states_gdf.to_crs("EPSG:4326")
+        return _states_gdf
+    except Exception as e:
+        print(f"Error loading states GeoJSON: {e}")
+        return None
+
+
+@router.get("/states/list")
+async def get_states_list():
+    """
+    Return list of available state names.
+    """
+    gdf = _load_states_gdf()
+    
+    if gdf is None:
+        raise HTTPException(status_code=404, detail="States data not found")
+    
+    # Get unique state names, sorted alphabetically
+    states = sorted(gdf['state'].dropna().unique().tolist())
+    return states
+
+
+@router.get("/states/{state_name}")
+async def get_state_boundary(state_name: str):
+    """
+    Return GeoJSON Feature for a specific state.
+    """
+    gdf = _load_states_gdf()
+    
+    if gdf is None:
+        raise HTTPException(status_code=404, detail="States data not found")
+    
+    # Find the state (case-insensitive match)
+    state_gdf = gdf[gdf['state'].str.lower() == state_name.lower()]
+    
+    if len(state_gdf) == 0:
+        raise HTTPException(status_code=404, detail=f"State '{state_name}' not found")
+    
+    # Return as GeoJSON Feature
+    state_row = state_gdf.iloc[0]
+    return {
+        "type": "Feature",
+        "properties": {"name": state_row['state']},
+        "geometry": mapping(state_row.geometry)
+    }
+
+
 @router.get("/{level}")
 async def get_boundaries(level: str, state: Optional[str] = None):
     """

@@ -1,10 +1,11 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import FileUpload from '@/components/FileUpload';
-import { voronoiApi, populationApi, type Facility, type GeoJSONFeatureCollection } from '@/lib/api';
+import { voronoiApi, populationApi, boundariesApi, type Facility, type GeoJSONFeatureCollection, type GeoJSONFeature } from '@/lib/api';
 import { exportToPNG, exportToGeoJSON } from '@/lib/export';
+import * as turf from '@turf/turf';
 
 // Dynamic import for Map (no SSR)
 const MapComponent = dynamic(() => import('@/components/Map'), {
@@ -28,6 +29,106 @@ export default function Home() {
   const [apiStatus, setApiStatus] = useState<'unknown' | 'online' | 'offline'>('unknown');
   const [isExporting, setIsExporting] = useState(false);
   const [isLoadingBoundaries, setIsLoadingBoundaries] = useState(false);
+  const [statesList, setStatesList] = useState<string[]>([]);
+  const [selectedState, setSelectedState] = useState<string | null>(null);
+  const [filterOutOfRegion, setFilterOutOfRegion] = useState(false);
+  const [selectedStateBoundary, setSelectedStateBoundary] = useState<GeoJSONFeature | null>(null);
+  const [indiaBoundary, setIndiaBoundary] = useState<GeoJSONFeature | null>(null);
+  const [mapCenter, setMapCenter] = useState<{ lat: number; lng: number; zoom: number } | null>(null);
+
+  // Fetch states list and India boundary on mount
+  useEffect(() => {
+    boundariesApi.getStatesList()
+      .then(setStatesList)
+      .catch((err) => console.error('Failed to load states list', err));
+
+    // Fetch India boundary for filtering
+    boundariesApi.getIndiaBoundary()
+      .then(setIndiaBoundary)
+      .catch((err) => console.error('Failed to load India boundary', err));
+  }, []);
+
+  // Fetch state boundary when selectedState changes
+  useEffect(() => {
+    if (selectedState) {
+      boundariesApi.getStateBoundary(selectedState)
+        .then(setSelectedStateBoundary)
+        .catch((err) => {
+          console.error('Failed to load state boundary', err);
+          setSelectedStateBoundary(null);
+        });
+    } else {
+      setSelectedStateBoundary(null);
+    }
+  }, [selectedState]);
+
+  // Filter facilities: always exclude outside India, then optionally filter by state
+  const displayedFacilities = useMemo(() => {
+    // First filter to only facilities inside India
+    let filtered = facilities;
+
+    if (indiaBoundary) {
+      filtered = facilities.filter(facility => {
+        try {
+          const point = turf.point([facility.lng, facility.lat]);
+          const polygon = indiaBoundary.geometry as GeoJSON.Polygon | GeoJSON.MultiPolygon;
+          return turf.booleanPointInPolygon(point, polygon);
+        } catch {
+          return false; // Exclude if we can't determine
+        }
+      });
+    }
+
+    // Then optionally filter by selected state
+    if (filterOutOfRegion && selectedState && selectedStateBoundary) {
+      filtered = filtered.filter(facility => {
+        try {
+          const point = turf.point([facility.lng, facility.lat]);
+          const polygon = selectedStateBoundary.geometry as GeoJSON.Polygon | GeoJSON.MultiPolygon;
+          return turf.booleanPointInPolygon(point, polygon);
+        } catch {
+          return true;
+        }
+      });
+    }
+
+    return filtered;
+  }, [facilities, indiaBoundary, filterOutOfRegion, selectedState, selectedStateBoundary]);
+
+  // Compute insights from Voronoi data
+  const insights = useMemo(() => {
+    if (!voronoiData || voronoiData.features.length === 0) {
+      return null;
+    }
+
+    // Extract features with population data
+    const featuresWithPop = voronoiData.features
+      .filter(f => f.properties.population && f.properties.area_sq_km)
+      .map(f => ({
+        name: f.properties.name || 'Unknown',
+        population: f.properties.population as number,
+        area_sq_km: f.properties.area_sq_km as number,
+        density: (f.properties.population as number) / (f.properties.area_sq_km as number),
+        lat: f.properties.centroid_lat as number,
+        lng: f.properties.centroid_lng as number,
+      }));
+
+    if (featuresWithPop.length === 0) {
+      return null;
+    }
+
+    // Top 5 by population
+    const topByPopulation = [...featuresWithPop]
+      .sort((a, b) => b.population - a.population)
+      .slice(0, 5);
+
+    // Top 5 by density
+    const topByDensity = [...featuresWithPop]
+      .sort((a, b) => b.density - a.density)
+      .slice(0, 5);
+
+    return { topByPopulation, topByDensity };
+  }, [voronoiData]);
 
   // Handle uploaded facilities
   const handleUploadSuccess = useCallback((uploadedFacilities: Facility[]) => {
@@ -87,6 +188,7 @@ export default function Home() {
         facilities,
         clip_to_india: true,
         include_population: true,
+        state_filter: selectedState,
       });
       setVoronoiData(result);
       setApiStatus('online');
@@ -99,7 +201,7 @@ export default function Home() {
     } finally {
       setIsComputing(false);
     }
-  }, [facilities]);
+  }, [facilities, selectedState]);
 
   // Load sample data
   const loadSampleData = useCallback(async () => {
@@ -250,6 +352,33 @@ export default function Home() {
                   </select>
                 </div>
 
+                <div className="flex items-center justify-between">
+                  <label className="text-gray-700">Region</label>
+                  <select
+                    value={selectedState ?? 'all'}
+                    onChange={(e) => setSelectedState(e.target.value === 'all' ? null : e.target.value)}
+                    className="bg-gray-50 border border-gray-300 text-gray-700 text-sm rounded-lg px-3 py-1.5 focus:ring-blue-500 focus:border-blue-500 max-w-[140px]"
+                  >
+                    <option value="all">All India</option>
+                    {statesList.map(state => (
+                      <option key={state} value={state}>{state}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Filter Out-of-Region toggle - only show when a region is selected */}
+                {selectedState && (
+                  <div className="flex items-center justify-between">
+                    <label className="text-gray-700 text-sm">Hide outside points</label>
+                    <button
+                      onClick={() => setFilterOutOfRegion(!filterOutOfRegion)}
+                      className={`relative w-12 h-6 rounded-full transition-colors ${filterOutOfRegion ? 'bg-blue-500' : 'bg-gray-300'}`}
+                    >
+                      <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${filterOutOfRegion ? 'translate-x-6' : 'translate-x-0.5'}`} />
+                    </button>
+                  </div>
+                )}
+
                 <button
                   onClick={computeVoronoi}
                   disabled={facilities.length < 3 || isComputing}
@@ -315,10 +444,11 @@ export default function Home() {
           <div className="lg:col-span-2">
             <div id="map-container" className="bg-white rounded-2xl shadow-sm border border-gray-200 p-4 h-[700px] relative">
               <MapComponent
-                facilities={facilities}
+                facilities={displayedFacilities}
                 voronoiData={showVoronoi ? voronoiData ?? undefined : undefined}
                 districtData={boundaryLevel === 'state' ? stateData : boundaryLevel === 'district' ? districtData : undefined}
                 showDistricts={boundaryLevel !== 'none'}
+                flyTo={mapCenter}
               />
 
               {/* Population Legend */}
@@ -350,6 +480,63 @@ export default function Home() {
                 </div>
               )}
             </div>
+
+            {/* Insights Panel - Below Map */}
+            {insights && (
+              <div className="mt-4 bg-white rounded-2xl shadow-sm border border-gray-200 p-4">
+                <h3 className="font-semibold text-gray-800 flex items-center gap-2 mb-4">
+                  <svg className="w-5 h-5 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                  </svg>
+                  Insights
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {/* Top by Population */}
+                  <div>
+                    <h4 className="text-sm font-medium text-gray-600 mb-3">Top 5 by Population</h4>
+                    <div className="space-y-2">
+                      {insights.topByPopulation.map((item, i) => (
+                        <button
+                          key={`pop-${i}`}
+                          onClick={() => setMapCenter({ lat: item.lat, lng: item.lng, zoom: 10 })}
+                          className="w-full flex justify-between items-center text-sm p-2 rounded-lg hover:bg-purple-50 transition-colors text-left"
+                        >
+                          <span className="text-gray-700 truncate flex-1 mr-2">
+                            <span className="text-gray-400 font-mono mr-1">{i + 1}.</span>
+                            <span className="text-blue-600 hover:underline">{item.name}</span>
+                          </span>
+                          <span className="text-gray-900 font-medium whitespace-nowrap">
+                            {(item.population / 1000000).toFixed(1)}M
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Top by Density */}
+                  <div>
+                    <h4 className="text-sm font-medium text-gray-600 mb-3">Top 5 by Density</h4>
+                    <div className="space-y-2">
+                      {insights.topByDensity.map((item, i) => (
+                        <button
+                          key={`den-${i}`}
+                          onClick={() => setMapCenter({ lat: item.lat, lng: item.lng, zoom: 10 })}
+                          className="w-full flex justify-between items-center text-sm p-2 rounded-lg hover:bg-purple-50 transition-colors text-left"
+                        >
+                          <span className="text-gray-700 truncate flex-1 mr-2">
+                            <span className="text-gray-400 font-mono mr-1">{i + 1}.</span>
+                            <span className="text-blue-600 hover:underline">{item.name}</span>
+                          </span>
+                          <span className="text-gray-900 font-medium whitespace-nowrap">
+                            {item.density.toFixed(0)}/km²
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </main>

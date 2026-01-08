@@ -23,6 +23,7 @@ export interface VoronoiRequest {
     facilities: Facility[];
     clip_to_india: boolean;
     include_population?: boolean;
+    state_filter?: string | null;  // If set, clip to this state instead of all India
 }
 
 export interface PopulationBreakdown {
@@ -101,6 +102,16 @@ export const boundariesApi = {
 
     getBoundaries: async (level: 'state' | 'district'): Promise<GeoJSONFeatureCollection> => {
         const response = await api.get(`/api/boundaries/${level}`);
+        return response.data;
+    },
+
+    getStatesList: async (): Promise<string[]> => {
+        const response = await api.get('/api/boundaries/states/list');
+        return response.data;
+    },
+
+    getStateBoundary: async (stateName: string): Promise<GeoJSONFeature> => {
+        const response = await api.get(`/api/boundaries/states/${encodeURIComponent(stateName)}`);
         return response.data;
     },
 };

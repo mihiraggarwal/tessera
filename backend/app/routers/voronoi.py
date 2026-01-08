@@ -25,6 +25,7 @@ class VoronoiRequest(BaseModel):
     facilities: List[Facility]
     clip_to_india: bool = True
     include_population: bool = False
+    state_filter: Optional[str] = None  # If set, clip to this state instead of all India
 
 
 class VoronoiResponse(BaseModel):
@@ -60,7 +61,8 @@ async def compute_voronoi(request: VoronoiRequest):
             names=names,
             facility_ids=facility_ids,
             types=types,
-            clip_to_india=request.clip_to_india
+            clip_to_india=request.clip_to_india,
+            state_filter=request.state_filter
         )
         
         if request.include_population:

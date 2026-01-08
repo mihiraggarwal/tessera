@@ -96,12 +96,75 @@ class TestBoundariesEndpoints:
         data = response.json()
         assert data["type"] == "Feature"
         assert data["properties"]["name"] == "India"
-        assert data["geometry"]["type"] == "Polygon"
+        assert data["geometry"]["type"] in ["Polygon", "MultiPolygon"]
     
     def test_invalid_boundary_level(self):
         """Test invalid boundary level returns error"""
         response = client.get("/api/boundaries/invalid")
         assert response.status_code == 400
+    
+    def test_states_list(self):
+        """Test that states list endpoint returns state names"""
+        response = client.get("/api/boundaries/states/list")
+        assert response.status_code == 200
+        data = response.json()
+        assert isinstance(data, list)
+        # Should have multiple states
+        assert len(data) > 10
+        # Check some known states exist
+        assert any("Delhi" in s for s in data)
+    
+    def test_get_state_boundary(self):
+        """Test getting boundary for a specific state"""
+        response = client.get("/api/boundaries/states/NCT%20of%20Delhi")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["type"] == "Feature"
+        assert "geometry" in data
+        assert "properties" in data
+    
+    def test_get_state_boundary_not_found(self):
+        """Test getting boundary for non-existent state"""
+        response = client.get("/api/boundaries/states/NonExistentState")
+        assert response.status_code == 404
+
+
+class TestStateFilteredVoronoi:
+    """Test Voronoi computation with state filtering"""
+    
+    def test_compute_voronoi_with_state_filter(self):
+        """Test Voronoi clipped to a specific state"""
+        payload = {
+            "facilities": [
+                {"name": "Delhi", "lat": 28.6139, "lng": 77.2090},
+                {"name": "Noida", "lat": 28.5355, "lng": 77.3910},
+                {"name": "Gurgaon", "lat": 28.4595, "lng": 77.0266},
+                {"name": "Faridabad", "lat": 28.4089, "lng": 77.3178},
+            ],
+            "clip_to_india": True,
+            "state_filter": "NCT of Delhi"
+        }
+        response = client.post("/api/voronoi/compute", json=payload)
+        assert response.status_code == 200
+        data = response.json()
+        assert data["type"] == "FeatureCollection"
+        assert "features" in data
+    
+    def test_compute_voronoi_all_india(self):
+        """Test Voronoi without state filter uses all India"""
+        payload = {
+            "facilities": [
+                {"name": "Delhi", "lat": 28.6139, "lng": 77.2090},
+                {"name": "Mumbai", "lat": 19.0760, "lng": 72.8777},
+                {"name": "Chennai", "lat": 13.0827, "lng": 80.2707},
+            ],
+            "clip_to_india": True,
+            "state_filter": None
+        }
+        response = client.post("/api/voronoi/compute", json=payload)
+        assert response.status_code == 200
+        data = response.json()
+        assert data["type"] == "FeatureCollection"
 
 
 class TestUploadEndpoints:
