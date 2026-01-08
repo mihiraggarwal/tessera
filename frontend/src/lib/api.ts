@@ -92,6 +92,21 @@ export const uploadApi = {
         });
         return response.data;
     },
+
+    getSampleData: async (): Promise<UploadResponse> => {
+        const response = await api.get('/api/upload/sample-data');
+        return response.data;
+    },
+
+    getAvailableFiles: async (): Promise<string[]> => {
+        const response = await api.get('/api/upload/available-files');
+        return response.data;
+    },
+
+    loadFile: async (filename: string): Promise<UploadResponse> => {
+        const response = await api.get(`/api/upload/load-file/${encodeURIComponent(filename)}`);
+        return response.data;
+    },
 };
 
 export const boundariesApi = {

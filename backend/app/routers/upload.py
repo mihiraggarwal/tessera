@@ -2,12 +2,16 @@
 CSV Upload router - handles facility CSV file uploads
 """
 import io
+from pathlib import Path
 from typing import List, Optional
 from fastapi import APIRouter, HTTPException, UploadFile, File
 from pydantic import BaseModel
 import pandas as pd
 
 router = APIRouter()
+
+# Path to data folder (from backend/app/routers/ -> tessera/data/)
+DATA_DIR = Path(__file__).parent.parent.parent.parent / "data"
 
 
 class FacilityData(BaseModel):
@@ -141,3 +145,151 @@ async def upload_csv(file: UploadFile = File(...)):
         facilities=facilities,
         errors=errors[:50]  # Limit errors to first 50
     )
+
+
+@router.get("/sample-data", response_model=UploadResponse)
+async def get_sample_data():
+    """
+    Load sample test.csv from the data folder.
+    """
+    sample_file = DATA_DIR / "test.csv"
+    
+    if not sample_file.exists():
+        raise HTTPException(status_code=404, detail="Sample data file not found")
+    
+    try:
+        df = pd.read_csv(sample_file, dtype=str, low_memory=False)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to parse sample data: {str(e)}")
+    
+    # Normalize column names
+    df.columns = df.columns.str.lower().str.strip().str.replace(' ', '_')
+    
+    errors = []
+    facilities = []
+    
+    # Map columns to expected names
+    name_col = next((c for c in df.columns if c in ['name', 'facility_name']), None)
+    lat_col = next((c for c in df.columns if c in ['lat', 'latitude']), None)
+    lng_col = next((c for c in df.columns if c in ['lng', 'lon', 'longitude']), None)
+    type_col = next((c for c in df.columns if c in ['type', 'facility_type']), None)
+    state_col = next((c for c in df.columns if c in ['state', 'state_name']), None)
+    district_col = next((c for c in df.columns if c in ['district', 'district_name']), None)
+    
+    if not all([name_col, lat_col, lng_col]):
+        raise HTTPException(status_code=500, detail="Sample data missing required columns")
+    
+    # Parse rows
+    for idx, row in df.iterrows():
+        try:
+            lat = float(row[lat_col])
+            lng = float(row[lng_col])
+            
+            if not (-90 <= lat <= 90) or not (-180 <= lng <= 180):
+                continue
+            
+            facility = FacilityData(
+                id=str(idx),
+                name=str(row[name_col]) if pd.notna(row[name_col]) else f"Facility_{idx}",
+                lat=lat,
+                lng=lng,
+                type=str(row[type_col]) if type_col and pd.notna(row.get(type_col)) else None,
+                state=str(row[state_col]) if state_col and pd.notna(row.get(state_col)) else None,
+                district=str(row[district_col]) if district_col and pd.notna(row.get(district_col)) else None,
+            )
+            facilities.append(facility)
+            
+        except (ValueError, TypeError):
+            continue
+    
+    return UploadResponse(
+        success=len(facilities) > 0,
+        total_rows=len(df),
+        valid_facilities=len(facilities),
+        facilities=facilities,
+        errors=[]
+    )
+
+
+@router.get("/available-files")
+async def get_available_files():
+    """
+    List available CSV files in the data folder (excluding test.csv which is sample data).
+    """
+    if not DATA_DIR.exists():
+        return []
+    
+    csv_files = []
+    for f in DATA_DIR.glob("*.csv"):
+        if f.name != "test.csv":  # Exclude sample data file
+            csv_files.append(f.name)
+    
+    return sorted(csv_files)
+
+
+@router.get("/load-file/{filename}", response_model=UploadResponse)
+async def load_file(filename: str):
+    """
+    Load a specific CSV file from the data folder.
+    """
+    # Security: prevent directory traversal
+    if ".." in filename or "/" in filename or "\\" in filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    
+    file_path = DATA_DIR / filename
+    
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail=f"File '{filename}' not found")
+    
+    try:
+        df = pd.read_csv(file_path, dtype=str, low_memory=False)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to parse file: {str(e)}")
+    
+    # Normalize column names
+    df.columns = df.columns.str.lower().str.strip().str.replace(' ', '_')
+    
+    facilities = []
+    
+    # Map columns to expected names
+    name_col = next((c for c in df.columns if c in ['name', 'facility_name']), None)
+    lat_col = next((c for c in df.columns if c in ['lat', 'latitude']), None)
+    lng_col = next((c for c in df.columns if c in ['lng', 'lon', 'longitude']), None)
+    type_col = next((c for c in df.columns if c in ['type', 'facility_type']), None)
+    state_col = next((c for c in df.columns if c in ['state', 'state_name']), None)
+    district_col = next((c for c in df.columns if c in ['district', 'district_name']), None)
+    
+    if not all([name_col, lat_col, lng_col]):
+        raise HTTPException(status_code=400, detail="File missing required columns (name, latitude, longitude)")
+    
+    # Parse rows
+    for idx, row in df.iterrows():
+        try:
+            lat = float(row[lat_col])
+            lng = float(row[lng_col])
+            
+            if not (-90 <= lat <= 90) or not (-180 <= lng <= 180):
+                continue
+            
+            facility = FacilityData(
+                id=str(idx),
+                name=str(row[name_col]) if pd.notna(row[name_col]) else f"Facility_{idx}",
+                lat=lat,
+                lng=lng,
+                type=str(row[type_col]) if type_col and pd.notna(row.get(type_col)) else None,
+                state=str(row[state_col]) if state_col and pd.notna(row.get(state_col)) else None,
+                district=str(row[district_col]) if district_col and pd.notna(row.get(district_col)) else None,
+            )
+            facilities.append(facility)
+            
+        except (ValueError, TypeError):
+            continue
+    
+    return UploadResponse(
+        success=len(facilities) > 0,
+        total_rows=len(df),
+        valid_facilities=len(facilities),
+        facilities=facilities,
+        errors=[]
+    )
+

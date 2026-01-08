@@ -131,7 +131,7 @@ export default function Home() {
   }, [voronoiData]);
 
   // Handle uploaded facilities
-  const handleUploadSuccess = useCallback((uploadedFacilities: Facility[]) => {
+  const handleUploadSuccess = useCallback((uploadedFacilities: Facility[], _filename: string) => {
     setFacilities(uploadedFacilities);
     setVoronoiData(null);
     setError(null);
@@ -203,37 +203,6 @@ export default function Home() {
     }
   }, [facilities, selectedState]);
 
-  // Load sample data
-  const loadSampleData = useCallback(async () => {
-    setIsComputing(true);
-    setError(null);
-
-    try {
-      const result = await voronoiApi.getSample();
-
-      // Extract facilities from the sample response
-      const sampleFacilities: Facility[] = result.features.map((f, i) => ({
-        id: String(f.id || i),
-        name: String(f.properties.name || `Sample ${i}`),
-        lat: f.properties.centroid_lat as number,
-        lng: f.properties.centroid_lng as number,
-        type: f.properties.type as string,
-      }));
-
-      setFacilities(sampleFacilities);
-      setVoronoiData(result);
-      setApiStatus('online');
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to load sample';
-      setError(message);
-      if (message.includes('Network Error')) {
-        setApiStatus('offline');
-      }
-    } finally {
-      setIsComputing(false);
-    }
-  }, []);
-
   // Export handlers
   const handleExportPNG = useCallback(async () => {
     setIsExporting(true);
@@ -302,18 +271,6 @@ export default function Home() {
                 onUploadSuccess={handleUploadSuccess}
                 onUploadError={handleUploadError}
               />
-
-              <div className="mt-4 flex items-center justify-center">
-                <span className="text-gray-400 text-sm">or</span>
-              </div>
-
-              <button
-                onClick={loadSampleData}
-                disabled={isComputing}
-                className="mt-4 w-full py-2.5 px-4 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl font-medium transition-colors disabled:opacity-50"
-              >
-                Load Sample Data
-              </button>
             </div>
 
             {/* Controls Card */}
