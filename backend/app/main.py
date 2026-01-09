@@ -1,10 +1,13 @@
 """
 Voronoi Population Mapping API - FastAPI Application
 """
+from dotenv import load_dotenv
+load_dotenv()  # Load environment variables from .env file
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.routers import voronoi, upload, boundaries, population
+from app.routers import voronoi, upload, boundaries, population, copilot
 
 app = FastAPI(
     title="Voronoi Population Mapping API",
@@ -42,3 +45,5 @@ app.include_router(voronoi.router, prefix="/api/voronoi", tags=["voronoi"])
 app.include_router(upload.router, prefix="/api/upload", tags=["upload"])
 app.include_router(boundaries.router, prefix="/api/boundaries", tags=["boundaries"])
 app.include_router(population.router, prefix="/api/population", tags=["population"])
+app.include_router(copilot.router, prefix="/api/copilot", tags=["copilot"])
+

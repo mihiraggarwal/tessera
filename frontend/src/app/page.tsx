@@ -3,7 +3,7 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import FileUpload from '@/components/FileUpload';
-import { voronoiApi, populationApi, boundariesApi, type Facility, type GeoJSONFeatureCollection, type GeoJSONFeature } from '@/lib/api';
+import { voronoiApi, populationApi, boundariesApi, copilotApi, type Facility, type GeoJSONFeatureCollection, type GeoJSONFeature, type CopilotQueryResponse } from '@/lib/api';
 import { exportToPNG, exportToGeoJSON } from '@/lib/export';
 import * as turf from '@turf/turf';
 
@@ -36,6 +36,12 @@ export default function Home() {
   const [indiaBoundary, setIndiaBoundary] = useState<GeoJSONFeature | null>(null);
   const [mapCenter, setMapCenter] = useState<{ lat: number; lng: number; zoom: number } | null>(null);
 
+  // Copilot state
+  const [copilotQuery, setCopilotQuery] = useState('');
+  const [copilotResponse, setCopilotResponse] = useState<CopilotQueryResponse | null>(null);
+  const [isCopilotLoading, setIsCopilotLoading] = useState(false);
+  const [copilotConfigured, setCopilotConfigured] = useState<boolean | null>(null);
+
   // Fetch states list and India boundary on mount
   useEffect(() => {
     boundariesApi.getStatesList()
@@ -46,6 +52,11 @@ export default function Home() {
     boundariesApi.getIndiaBoundary()
       .then(setIndiaBoundary)
       .catch((err) => console.error('Failed to load India boundary', err));
+
+    // Check copilot status
+    copilotApi.getStatus()
+      .then((status) => setCopilotConfigured(status.configured))
+      .catch(() => setCopilotConfigured(false));
   }, []);
 
   // Fetch state boundary when selectedState changes
@@ -202,6 +213,49 @@ export default function Home() {
       setIsComputing(false);
     }
   }, [facilities, selectedState]);
+
+  // Handle copilot query
+  const handleCopilotQuery = useCallback(async () => {
+    if (!copilotQuery.trim() || isCopilotLoading) return;
+
+    setIsCopilotLoading(true);
+    setCopilotResponse(null);
+
+    try {
+      const context = {
+        facilitiesLoaded: facilities.length,
+        selectedState,
+        voronoiComputed: !!voronoiData,
+      };
+      const result = await copilotApi.query(copilotQuery, context);
+      setCopilotResponse(result);
+
+      // Handle function calls
+      if (result.function_call) {
+        const { name, arguments: args } = result.function_call;
+
+        if (name === 'compute_voronoi') {
+          if (args.state_filter && typeof args.state_filter === 'string') {
+            setSelectedState(args.state_filter);
+          }
+          await computeVoronoi();
+        } else if (name === 'navigate_to_location' && args.location_name) {
+          // Simple navigation - could be enhanced with geocoding
+          console.log('Navigate to:', args.location_name);
+        }
+      }
+    } catch (err) {
+      setCopilotResponse({
+        success: false,
+        query: copilotQuery,
+        response_text: null,
+        function_call: null,
+        error: err instanceof Error ? err.message : 'Query failed'
+      });
+    } finally {
+      setIsCopilotLoading(false);
+    }
+  }, [copilotQuery, isCopilotLoading, facilities, selectedState, voronoiData, computeVoronoi]);
 
   // Export handlers
   const handleExportPNG = useCallback(async () => {
@@ -495,6 +549,76 @@ export default function Home() {
                     </div>
                   </div>
                 </div>
+              </div>
+            )}
+
+            {/* Map Copilot - Chat Input */}
+            {copilotConfigured && (
+              <div className="mt-4 bg-white rounded-2xl shadow-sm border border-gray-200 p-4">
+                <h3 className="font-semibold text-gray-800 flex items-center gap-2 mb-3">
+                  <svg className="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
+                  </svg>
+                  Ask the Map
+                </h3>
+
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={copilotQuery}
+                    onChange={(e) => setCopilotQuery(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleCopilotQuery()}
+                    placeholder="E.g., 'Show coverage for Karnataka and highlight 3 worst-covered areas'"
+                    className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-blue-500 focus:border-blue-500"
+                    disabled={isCopilotLoading}
+                  />
+                  <button
+                    onClick={handleCopilotQuery}
+                    disabled={isCopilotLoading || !copilotQuery.trim()}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                  >
+                    {isCopilotLoading ? (
+                      <>
+                        <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                        </svg>
+                        Thinking...
+                      </>
+                    ) : 'Ask'}
+                  </button>
+                </div>
+
+                {/* Response Display */}
+                {copilotResponse && (
+                  <div className={`mt-3 p-3 rounded-lg text-sm ${copilotResponse.success ? 'bg-blue-50' : 'bg-red-50'}`}>
+                    {copilotResponse.response_text && (
+                      <p className={copilotResponse.success ? 'text-blue-800' : 'text-red-800'}>
+                        {copilotResponse.response_text}
+                      </p>
+                    )}
+                    {copilotResponse.function_call && (
+                      <div className="mt-2 p-2 bg-white rounded border border-blue-200">
+                        <p className="text-xs text-gray-500 mb-1">Action executed:</p>
+                        <code className="text-xs text-blue-700">
+                          {copilotResponse.function_call.name}({JSON.stringify(copilotResponse.function_call.arguments)})
+                        </code>
+                      </div>
+                    )}
+                    {copilotResponse.error && (
+                      <p className="text-red-700">{copilotResponse.error}</p>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Copilot not configured notice */}
+            {copilotConfigured === false && (
+              <div className="mt-4 bg-gray-50 rounded-2xl border border-gray-200 p-4 text-center">
+                <p className="text-sm text-gray-500">
+                  💬 Map Copilot: Configure Azure OpenAI in .env to enable natural language queries
+                </p>
               </div>
             )}
           </div>

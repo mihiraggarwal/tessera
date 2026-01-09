@@ -293,3 +293,98 @@ async def load_file(filename: str):
         errors=[]
     )
 
+
+# ============================================
+# PDF Extraction Endpoints (Azure Document Intelligence)
+# ============================================
+
+class ExtractedTable(BaseModel):
+    """Extracted table from PDF"""
+    row_count: int
+    column_count: int
+    headers: List[str]
+    rows: List[dict]
+
+
+class PDFExtractionResponse(BaseModel):
+    """Response from PDF extraction"""
+    success: bool
+    page_count: int
+    table_count: int
+    tables: List[ExtractedTable]
+    mapped_data: List[dict]  # Data mapped to population schema
+    errors: List[str]
+
+
+@router.get("/pdf/status")
+async def pdf_extraction_status():
+    """Check if PDF extraction (Document Intelligence) is configured."""
+    from app.services.document_intelligence import document_service
+    return {
+        "configured": document_service.is_configured,
+        "message": "Azure Document Intelligence is configured" if document_service.is_configured 
+                   else "Set AZURE_DOC_INTEL_ENDPOINT and AZURE_DOC_INTEL_KEY in .env"
+    }
+
+
+@router.post("/pdf", response_model=PDFExtractionResponse)
+async def extract_pdf_tables(file: UploadFile = File(...)):
+    """
+    Extract tables from a PDF file using Azure Document Intelligence.
+    
+    The extracted tables are automatically mapped to population schema if possible.
+    """
+    if not file.filename.lower().endswith('.pdf'):
+        raise HTTPException(status_code=400, detail="File must be a PDF")
+    
+    from app.services.document_intelligence import document_service
+    
+    if not document_service.is_configured:
+        raise HTTPException(
+            status_code=503, 
+            detail="Azure Document Intelligence is not configured. Set AZURE_DOC_INTEL_ENDPOINT and AZURE_DOC_INTEL_KEY."
+        )
+    
+    try:
+        # Read the PDF file
+        pdf_bytes = await file.read()
+        
+        # Extract tables using Document Intelligence
+        result = document_service.extract_tables_from_pdf(pdf_bytes)
+        
+        # Map first table to population schema (if available)
+        mapped_data = []
+        if result["tables"]:
+            mapped_data = document_service.map_to_population_schema(result["tables"][0])
+        
+        # Convert to response format
+        tables = [
+            ExtractedTable(
+                row_count=t["row_count"],
+                column_count=t["column_count"],
+                headers=t["headers"],
+                rows=t["rows"]
+            )
+            for t in result["tables"]
+        ]
+        
+        return PDFExtractionResponse(
+            success=True,
+            page_count=result["page_count"],
+            table_count=result["table_count"],
+            tables=tables,
+            mapped_data=mapped_data,
+            errors=[]
+        )
+        
+    except Exception as e:
+        return PDFExtractionResponse(
+            success=False,
+            page_count=0,
+            table_count=0,
+            tables=[],
+            mapped_data=[],
+            errors=[str(e)]
+        )
+
+

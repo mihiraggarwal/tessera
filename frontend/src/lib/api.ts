@@ -67,6 +67,23 @@ export interface UploadResponse {
     errors: string[];
 }
 
+export interface ExtractedTable {
+    row_count: number;
+    column_count: number;
+    headers: string[];
+    rows: Record<string, string>[];
+}
+
+export interface PDFExtractionResponse {
+    success: boolean;
+    page_count: number;
+    table_count: number;
+    tables: ExtractedTable[];
+    mapped_data: Record<string, unknown>[];
+    errors: string[];
+}
+
+
 // API Functions
 export const voronoiApi = {
     compute: async (request: VoronoiRequest): Promise<GeoJSONFeatureCollection> => {
@@ -105,6 +122,24 @@ export const uploadApi = {
 
     loadFile: async (filename: string): Promise<UploadResponse> => {
         const response = await api.get(`/api/upload/load-file/${encodeURIComponent(filename)}`);
+        return response.data;
+    },
+
+    // PDF Extraction (Azure Document Intelligence)
+    getPdfExtractionStatus: async (): Promise<{ configured: boolean; message: string }> => {
+        const response = await api.get('/api/upload/pdf/status');
+        return response.data;
+    },
+
+    extractPdf: async (file: File): Promise<PDFExtractionResponse> => {
+        const formData = new FormData();
+        formData.append('file', file);
+
+        const response = await api.post('/api/upload/pdf', formData, {
+            headers: {
+                'Content-Type': 'multipart/form-data',
+            },
+        });
         return response.data;
     },
 };
@@ -149,4 +184,53 @@ export const healthApi = {
     },
 };
 
+// Copilot API Types
+export interface CopilotFunctionCall {
+    name: string;
+    arguments: Record<string, unknown>;
+}
+
+export interface CopilotQueryResponse {
+    success: boolean;
+    query: string;
+    response_text: string | null;
+    function_call: CopilotFunctionCall | null;
+    error: string | null;
+}
+
+export interface CopilotSummaryResponse {
+    success: boolean;
+    summary: string;
+    error: string | null;
+}
+
+export interface CopilotAnswerResponse {
+    success: boolean;
+    answer: string;
+    error: string | null;
+}
+
+export const copilotApi = {
+    getStatus: async (): Promise<{ configured: boolean; message: string }> => {
+        const response = await api.get('/api/copilot/status');
+        return response.data;
+    },
+
+    query: async (query: string, context?: Record<string, unknown>): Promise<CopilotQueryResponse> => {
+        const response = await api.post('/api/copilot/query', { query, context });
+        return response.data;
+    },
+
+    summarize: async (data: Record<string, unknown>): Promise<CopilotSummaryResponse> => {
+        const response = await api.post('/api/copilot/summarize', { data });
+        return response.data;
+    },
+
+    answer: async (question: string, data: Record<string, unknown>): Promise<CopilotAnswerResponse> => {
+        const response = await api.post('/api/copilot/answer', { question, data });
+        return response.data;
+    },
+};
+
 export default api;
+
