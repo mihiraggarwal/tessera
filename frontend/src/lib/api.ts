@@ -142,6 +142,27 @@ export const populationApi = {
     },
 };
 
+export interface ChatMessage {
+    role: 'user' | 'assistant';
+    content: string;
+}
+
+export interface ChatRequest {
+    messages: ChatMessage[];
+    context?: Record<string, unknown>;
+}
+
+export interface ChatResponse {
+    response: string;
+}
+
+export const copilotApi = {
+    chat: async (messages: ChatMessage[], context?: Record<string, unknown>): Promise<ChatResponse> => {
+        const response = await api.post('/api/copilot/chat', { messages, context });
+        return response.data;
+    },
+};
+
 export const healthApi = {
     check: async (): Promise<{ status: string; message: string }> => {
         const response = await api.get('/');

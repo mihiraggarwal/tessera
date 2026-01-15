@@ -53,7 +53,8 @@ class VoronoiEngine:
         if VoronoiEngine._india_boundary_wgs84 is not None:
             return  # Already loaded
         
-        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        # Go up 4 levels: services -> app -> backend -> tessera
+        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
         shapefile_path = os.path.join(base_dir, "data", "boundaries", "india_st.shp")
         
         if not os.path.exists(shapefile_path):
@@ -95,7 +96,8 @@ class VoronoiEngine:
     
     def _get_state_boundary(self, state_name: str) -> Optional[Polygon]:
         """Load boundary for a specific state from states.geojson."""
-        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        # Go up 4 levels: services -> app -> backend -> tessera
+        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
         geojson_path = os.path.join(base_dir, "data", "states.geojson")
         
         if not os.path.exists(geojson_path):

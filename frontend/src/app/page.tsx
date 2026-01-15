@@ -3,6 +3,7 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import FileUpload from '@/components/FileUpload';
+import ChatInterface from '@/components/MapCopilot/ChatInterface';
 import { voronoiApi, populationApi, boundariesApi, type Facility, type GeoJSONFeatureCollection, type GeoJSONFeature } from '@/lib/api';
 import { exportToPNG, exportToGeoJSON } from '@/lib/export';
 import * as turf from '@turf/turf';
@@ -127,7 +128,12 @@ export default function Home() {
       .sort((a, b) => b.density - a.density)
       .slice(0, 5);
 
-    return { topByPopulation, topByDensity };
+    // Top 5 by area
+    const topByArea = [...featuresWithPop]
+      .sort((a, b) => b.area_sq_km - a.area_sq_km)
+      .slice(0, 5);
+
+    return { topByPopulation, topByDensity, topByArea };
   }, [voronoiData]);
 
   // Handle uploaded facilities
@@ -223,6 +229,26 @@ export default function Home() {
     }
     exportToGeoJSON(voronoiData, 'tessera-voronoi.geojson');
   }, [voronoiData]);
+
+  // Context for Chatbot
+  const chatContext = useMemo(() => {
+    return {
+      facilities_count: facilities.length,
+      selected_state: selectedState,
+      boundary_level: boundaryLevel,
+      has_voronoi: !!voronoiData,
+      insights: insights,
+      largest_cell: insights?.topByArea[0] ? {
+        name: insights.topByArea[0].name,
+        area_sq_km: insights.topByArea[0].area_sq_km
+      } : null,
+      most_populated_cell: insights?.topByPopulation[0] ? {
+        name: insights.topByPopulation[0].name,
+        population: insights.topByPopulation[0].population,
+        density: insights.topByPopulation[0].density
+      } : null
+    };
+  }, [facilities.length, selectedState, boundaryLevel, voronoiData, insights]);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
@@ -500,6 +526,9 @@ export default function Home() {
           </div>
         </div>
       </main>
+
+      {/* Chat Interface */}
+      <ChatInterface context={chatContext} />
     </div>
   );
 }
