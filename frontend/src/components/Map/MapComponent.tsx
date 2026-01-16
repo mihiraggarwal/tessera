@@ -18,6 +18,11 @@ const DefaultIcon = L.icon({
 
 L.Marker.prototype.options.icon = DefaultIcon;
 
+interface EnclosingCircle {
+    center: [number, number]; // [lng, lat]
+    radius_km: number;
+}
+
 interface MapProps {
     facilities?: Facility[];
     voronoiData?: GeoJSONFeatureCollection;
@@ -27,6 +32,12 @@ interface MapProps {
     zoom?: number;
     onMapClick?: (lat: number, lng: number) => void;
     flyTo?: { lat: number; lng: number; zoom: number } | null;
+    enclosingCircles?: {
+        mec?: EnclosingCircle;
+        largestEmpty?: EnclosingCircle;
+    };
+    showEnclosingCircles?: boolean;
+    editMode?: 'add' | 'remove' | null;
 }
 
 // Population coloring (Yellow -> Red)
@@ -60,12 +71,16 @@ export default function MapComponent({
     zoom = 5,
     onMapClick,
     flyTo,
+    enclosingCircles,
+    showEnclosingCircles = false,
+    editMode = null,
 }: MapProps) {
     const mapRef = useRef<L.Map | null>(null);
     const mapContainerRef = useRef<HTMLDivElement>(null);
     const markersLayerRef = useRef<L.LayerGroup | null>(null);
     const voronoiLayerRef = useRef<L.LayerGroup | null>(null);
     const districtsLayerRef = useRef<L.LayerGroup | null>(null);
+    const enclosingCirclesLayerRef = useRef<L.LayerGroup | null>(null);
 
     // Initialize map
     useEffect(() => {
@@ -82,14 +97,8 @@ export default function MapComponent({
         // Create layer groups
         districtsLayerRef.current = L.layerGroup().addTo(map);  // Bottom layer
         voronoiLayerRef.current = L.layerGroup().addTo(map);    // Middle layer
-        markersLayerRef.current = L.layerGroup().addTo(map);    // Top layer
-
-        // Map click handler
-        if (onMapClick) {
-            map.on('click', (e) => {
-                onMapClick(e.latlng.lat, e.latlng.lng);
-            });
-        }
+        markersLayerRef.current = L.layerGroup().addTo(map);    // Facility markers
+        enclosingCirclesLayerRef.current = L.layerGroup().addTo(map); // Top layer for circles
 
         mapRef.current = map;
 
@@ -113,19 +122,22 @@ export default function MapComponent({
                 weight: 2,
                 opacity: 1,
                 fillOpacity: 0.8,
+                interactive: editMode !== 'remove' && editMode !== 'add', // Let map handle clicks in edit mode
             });
 
-            marker.bindPopup(`
-        <div class="p-2">
-          <strong>${facility.name}</strong>
-          ${facility.type ? `<br><span class="text-gray-600">${facility.type}</span>` : ''}
-          ${facility.state ? `<br><span class="text-gray-500">${facility.state}</span>` : ''}
-        </div>
-      `);
+            if (editMode !== 'remove' && editMode !== 'add') {
+                marker.bindPopup(`
+                    <div class="p-2">
+                        <strong>${facility.name}</strong>
+                        ${facility.type ? `<br><span class="text-gray-600">${facility.type}</span>` : ''}
+                        ${facility.state ? `<br><span class="text-gray-500">${facility.state}</span>` : ''}
+                    </div>
+                `);
+            }
 
             marker.addTo(markersLayerRef.current!);
         });
-    }, [facilities]);
+    }, [facilities, editMode]);
 
     // Update Voronoi layer
     useEffect(() => {
@@ -149,6 +161,7 @@ export default function MapComponent({
                         // Use population color if available, otherwise random
                         fillColor: hasPop ? getPopulationColor(props.population as number) : getRandomColor(index),
                         fillOpacity: 0.5,
+                        interactive: editMode !== 'remove' && editMode !== 'add', // Let map handle clicks
                     });
 
                     let popupContent = `
@@ -173,12 +186,14 @@ export default function MapComponent({
                         </div>
                     `;
 
-                    polygon.bindPopup(popupContent);
+                    if (editMode !== 'remove' && editMode !== 'add') {
+                        polygon.bindPopup(popupContent);
+                    }
                     polygon.addTo(voronoiLayerRef.current!);
                 }
             });
         }
-    }, [voronoiData]);
+    }, [voronoiData, editMode]);
 
     // Update Districts layer
     useEffect(() => {
@@ -201,7 +216,7 @@ export default function MapComponent({
                 }
             });
         }
-    }, [showDistricts, districtData]);
+    }, [showDistricts, districtData, editMode]);
 
     // Update map center/zoom
     useEffect(() => {
@@ -218,6 +233,102 @@ export default function MapComponent({
             });
         }
     }, [flyTo]);
+
+    // Update enclosing circles layer
+    useEffect(() => {
+        if (!enclosingCirclesLayerRef.current) return;
+
+        enclosingCirclesLayerRef.current.clearLayers();
+
+        if (showEnclosingCircles && enclosingCircles) {
+            // Minimum Enclosing Circle (MEC) - blue dashed
+            if (enclosingCircles.mec?.center && enclosingCircles.mec.radius_km > 0) {
+                const [lng, lat] = enclosingCircles.mec.center;
+                const radiusMeters = enclosingCircles.mec.radius_km * 1000;
+
+                const mecCircle = L.circle([lat, lng], {
+                    radius: radiusMeters,
+                    color: '#3B82F6',
+                    weight: 4,
+                    fillOpacity: 0.1,
+                    dashArray: '10, 10',
+                });
+                mecCircle.bindPopup(`
+                    <div class="p-2">
+                        <strong>Minimum Enclosing Circle</strong><br>
+                        <span class="text-gray-600">Radius: ${enclosingCircles.mec.radius_km.toFixed(1)} km</span><br>
+                        <span class="text-xs text-gray-500">Smallest circle covering all facilities</span>
+                    </div>
+                `);
+                mecCircle.addTo(enclosingCirclesLayerRef.current);
+            }
+
+            // Largest Empty Circle - orange dashed
+            if (enclosingCircles.largestEmpty?.center && enclosingCircles.largestEmpty.radius_km > 0) {
+                const [lng, lat] = enclosingCircles.largestEmpty.center;
+                const radiusMeters = enclosingCircles.largestEmpty.radius_km * 1000;
+
+                const emptyCircle = L.circle([lat, lng], {
+                    radius: radiusMeters,
+                    color: '#EF4444', // Red for underserved
+                    weight: 5,
+                    fillOpacity: 0.2,
+                    fillColor: '#FEE2E2',
+                    dashArray: '5, 5',
+                });
+                emptyCircle.bindPopup(`
+                    <div class="p-2">
+                        <strong>Largest Underserved Area</strong><br>
+                        <span class="text-gray-600">Radius: ${enclosingCircles.largestEmpty.radius_km.toFixed(1)} km</span><br>
+                        <span class="text-xs text-gray-500">Largest area without a facility</span>
+                    </div>
+                `);
+                emptyCircle.addTo(enclosingCirclesLayerRef.current);
+
+                // Add marker at center of empty circle
+                const centerMarker = L.circleMarker([lat, lng], {
+                    radius: 10,
+                    fillColor: '#EF4444',
+                    color: '#B91C1C',
+                    weight: 3,
+                    opacity: 1,
+                    fillOpacity: 0.9,
+                });
+                centerMarker.bindPopup('Suggested location for new facility');
+                centerMarker.addTo(enclosingCirclesLayerRef.current);
+            }
+        }
+    }, [showEnclosingCircles, enclosingCircles]);
+
+    // Update cursor style based on edit mode
+    useEffect(() => {
+        if (mapContainerRef.current) {
+            if (editMode === 'add') {
+                mapContainerRef.current.style.cursor = 'crosshair';
+            } else if (editMode === 'remove') {
+                mapContainerRef.current.style.cursor = 'pointer';
+            } else {
+                mapContainerRef.current.style.cursor = '';
+            }
+        }
+    }, [editMode]);
+
+    // Update map click listener
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!map) return;
+
+        const onClick = (e: L.LeafletMouseEvent) => {
+            if (onMapClick) {
+                onMapClick(e.latlng.lat, e.latlng.lng);
+            }
+        };
+
+        map.on('click', onClick);
+        return () => {
+            map.off('click', onClick);
+        };
+    }, [onMapClick]);
 
     return (
         <div
