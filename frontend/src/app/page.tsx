@@ -444,7 +444,7 @@ export default function Home() {
                 {/* Show Enclosing Circles Toggle */}
                 {voronoiData && (
                   <div className="flex items-center justify-between">
-                    <label className="text-gray-700 text-sm">Show Circles</label>
+                    <label className="text-gray-700 text-sm">Show Insights on Map</label>
                     <button
                       onClick={() => setShowEnclosingCircles(!showEnclosingCircles)}
                       className={`relative w-12 h-6 rounded-full transition-colors ${showEnclosingCircles ? 'bg-orange-500' : 'bg-gray-300'}`}

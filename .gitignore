@@ -1,3 +1,5 @@
 /backend/.venv
 *__pycache__
 India Shape
+*.env
+todo.*
