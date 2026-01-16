@@ -93,8 +93,8 @@ class VoronoiEngine:
             print(f"Error loading India shapefile: {e}")
             print("Falling back to bounding box for clipping.")
     
-    def _get_state_boundary(self, state_name: str) -> Optional[Polygon]:
-        """Load boundary for a specific state from states.geojson."""
+    def _get_state_boundary_wgs84(self, state_name: str) -> Optional[Polygon]:
+        """Load boundary for a specific state from states.geojson in WGS84."""
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         geojson_path = os.path.join(base_dir, "data", "states.geojson")
         
@@ -116,21 +116,36 @@ class VoronoiEngine:
             if len(state_gdf) == 0:
                 return None
             
-            # Get the geometry and project it
+            # Get the geometry
             state_geom = state_gdf.iloc[0].geometry
             if not state_geom.is_valid:
                 state_geom = state_geom.buffer(0)
             
+            return state_geom
+            
+        except Exception as e:
+            print(f"Error loading state boundary WGS84: {e}")
+            return None
+
+    def _get_state_boundary(self, state_name: str) -> Optional[Polygon]:
+        """Load boundary for a specific state from states.geojson in Projected CRS."""
+        state_geom = self._get_state_boundary_wgs84(state_name)
+        if state_geom is None:
+            return None
+        
+        try:
             # Project to UTM for Voronoi clipping
-            state_gdf_proj = state_gdf.to_crs(self.CRS_PROJECTED)
-            projected_geom = state_gdf_proj.iloc[0].geometry
+            gs = gpd.GeoSeries([state_geom], crs="EPSG:4326")
+            gs_proj = gs.to_crs(self.CRS_PROJECTED)
+            projected_geom = gs_proj.iloc[0]
+            
             if not projected_geom.is_valid:
                 projected_geom = projected_geom.buffer(0)
             
             return projected_geom
             
         except Exception as e:
-            print(f"Error loading state boundary: {e}")
+            print(f"Error projecting state boundary: {e}")
             return None
     
     def _project_coords(self, coords: List[Tuple[float, float]]) -> np.ndarray:

@@ -68,6 +68,50 @@ export interface UploadResponse {
 }
 
 // API Functions
+export interface FacilityInsights {
+    minimum_enclosing_circle?: { center: [number, number]; radius_km: number };
+    largest_empty_circle?: { center: [number, number]; radius_km: number };
+    most_overburdened: Array<{
+        name: string;
+        population: number;
+        area_sq_km: number;
+        density: number;
+        lat: number;
+        lng: number;
+    }>;
+    most_underserved: Array<{
+        name: string;
+        area_sq_km: number;
+        lat: number;
+        lng: number;
+    }>;
+    coverage_stats: {
+        total_population: number;
+        total_area_sq_km: number;
+        avg_population_per_facility: number;
+        avg_area_per_facility: number;
+        facility_count: number;
+    };
+    recommendations: Array<{
+        type: string;
+        priority: 'HIGH' | 'MEDIUM' | 'LOW';
+        message: string;
+        action: string;
+        coords?: [number, number];
+    }>;
+}
+
+export interface FindNearestRequest {
+    click_lat: number;
+    click_lng: number;
+    facilities: Facility[];
+}
+
+export interface FindNearestResponse {
+    index: number;
+    facility: Facility | null;
+}
+
 export const voronoiApi = {
     compute: async (request: VoronoiRequest): Promise<GeoJSONFeatureCollection> => {
         const response = await api.post('/api/voronoi/compute', request);
@@ -76,6 +120,16 @@ export const voronoiApi = {
 
     getSample: async (): Promise<GeoJSONFeatureCollection> => {
         const response = await api.get('/api/voronoi/sample');
+        return response.data;
+    },
+
+    getInsights: async (request: VoronoiRequest): Promise<FacilityInsights> => {
+        const response = await api.post('/api/voronoi/insights', request);
+        return response.data;
+    },
+
+    findNearest: async (request: FindNearestRequest): Promise<FindNearestResponse> => {
+        const response = await api.post('/api/voronoi/find-nearest', request);
         return response.data;
     },
 };

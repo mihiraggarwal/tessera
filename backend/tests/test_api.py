@@ -198,3 +198,71 @@ class TestUploadEndpoints:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+class TestAnalyticsEndpoints:
+    """Test analytics and facility management endpoints"""
+    
+    def test_insights_returns_coverage_stats(self):
+        """Test that insights endpoint returns coverage statistics"""
+        payload = {
+            "facilities": [
+                {"name": "Delhi", "lat": 28.6139, "lng": 77.2090},
+                {"name": "Mumbai", "lat": 19.0760, "lng": 72.8777},
+                {"name": "Chennai", "lat": 13.0827, "lng": 80.2707},
+                {"name": "Kolkata", "lat": 22.5726, "lng": 88.3639},
+            ],
+            "clip_to_india": True,
+            "include_population": True
+        }
+        response = client.post("/api/voronoi/insights", json=payload)
+        assert response.status_code == 200
+        data = response.json()
+        assert "coverage_stats" in data
+        assert "most_overburdened" in data
+        assert "most_underserved" in data
+    
+    def test_insights_returns_enclosing_circles(self):
+        """Test that insights returns enclosing circle data"""
+        payload = {
+            "facilities": [
+                {"name": "Delhi", "lat": 28.6139, "lng": 77.2090},
+                {"name": "Mumbai", "lat": 19.0760, "lng": 72.8777},
+                {"name": "Chennai", "lat": 13.0827, "lng": 80.2707},
+            ],
+            "clip_to_india": True
+        }
+        response = client.post("/api/voronoi/insights", json=payload)
+        assert response.status_code == 200
+        data = response.json()
+        assert "minimum_enclosing_circle" in data
+        assert "largest_empty_circle" in data
+    
+    def test_find_nearest_facility(self):
+        """Test finding nearest facility to a click location"""
+        payload = {
+            "click_lat": 20.0,
+            "click_lng": 75.0,
+            "facilities": [
+                {"name": "Delhi", "lat": 28.6139, "lng": 77.2090},
+                {"name": "Mumbai", "lat": 19.0760, "lng": 72.8777},
+                {"name": "Chennai", "lat": 13.0827, "lng": 80.2707},
+            ]
+        }
+        response = client.post("/api/voronoi/find-nearest", json=payload)
+        assert response.status_code == 200
+        data = response.json()
+        assert "index" in data
+        assert "facility" in data
+        # Mumbai should be nearest to (20, 75)
+        assert data["facility"]["name"] == "Mumbai"
+    
+    def test_find_nearest_empty_facilities(self):
+        """Test find_nearest with empty facilities list"""
+        payload = {
+            "click_lat": 20.0,
+            "click_lng": 75.0,
+            "facilities": []
+        }
+        response = client.post("/api/voronoi/find-nearest", json=payload)
+        assert response.status_code == 400
