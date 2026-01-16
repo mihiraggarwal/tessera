@@ -98,13 +98,23 @@ export const uploadApi = {
         return response.data;
     },
 
-    getAvailableFiles: async (): Promise<string[]> => {
+    getAvailableFiles: async (): Promise<{ user_data: string[]; public_facilities: string[] }> => {
         const response = await api.get('/api/upload/available-files');
         return response.data;
     },
 
     loadFile: async (filename: string): Promise<UploadResponse> => {
         const response = await api.get(`/api/upload/load-file/${encodeURIComponent(filename)}`);
+        return response.data;
+    },
+
+    loadPublicFile: async (filename: string): Promise<UploadResponse> => {
+        const response = await api.get(`/api/upload/load-public-file/${encodeURIComponent(filename)}`);
+        return response.data;
+    },
+
+    getBusStops: async (stateName: string): Promise<UploadResponse> => {
+        const response = await api.get(`/api/upload/bus-stops/${encodeURIComponent(stateName)}`);
         return response.data;
     },
 };

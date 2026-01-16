@@ -8,12 +8,17 @@ interface FileUploadProps {
     onUploadError?: (error: string) => void;
 }
 
+interface AvailableFiles {
+    user_data: string[];
+    public_facilities: string[];
+}
+
 export default function FileUpload({ onUploadSuccess, onUploadError }: FileUploadProps) {
     const [isDragging, setIsDragging] = useState(false);
     const [isUploading, setIsUploading] = useState(false);
     const [uploadedFileName, setUploadedFileName] = useState<string | null>(null);
     const [facilityCount, setFacilityCount] = useState(0);
-    const [availableFiles, setAvailableFiles] = useState<string[]>([]);
+    const [availableFiles, setAvailableFiles] = useState<AvailableFiles>({ user_data: [], public_facilities: [] });
 
     // Fetch available files on mount
     useEffect(() => {
@@ -92,6 +97,31 @@ export default function FileUpload({ onUploadSuccess, onUploadError }: FileUploa
         }
     }, [onUploadSuccess, onUploadError]);
 
+    const handleLoadPublicFile = useCallback(async (filename: string) => {
+        if (!filename) return;
+
+        setIsUploading(true);
+
+        try {
+            const result = await uploadApi.loadPublicFile(filename);
+
+            if (result.success && result.facilities.length > 0) {
+                // Format display name from filename
+                const displayName = filename.replace(/_/g, ' ').replace('.csv', '');
+                setUploadedFileName(`${displayName} (${result.facilities.length})`);
+                setFacilityCount(result.facilities.length);
+                onUploadSuccess(result.facilities, filename);
+            } else {
+                onUploadError?.(`Failed to load ${filename}`);
+            }
+        } catch (error) {
+            const message = error instanceof Error ? error.message : `Failed to load ${filename}`;
+            onUploadError?.(message);
+        } finally {
+            setIsUploading(false);
+        }
+    }, [onUploadSuccess, onUploadError]);
+
     const handleClear = useCallback(() => {
         setUploadedFileName(null);
         setFacilityCount(0);
@@ -124,7 +154,7 @@ export default function FileUpload({ onUploadSuccess, onUploadError }: FileUploa
         }
     }, [handleFile]);
 
-    // Show uploaded file info instead of upload UI
+    // Show uploaded file info
     if (uploadedFileName) {
         return (
             <div className="w-full">
@@ -155,6 +185,12 @@ export default function FileUpload({ onUploadSuccess, onUploadError }: FileUploa
             </div>
         );
     }
+
+    // Format public facility name for display
+    const formatPublicName = (filename: string) => {
+        const name = filename.replace(/_/g, ' ').replace('.csv', '');
+        return name.charAt(0).toUpperCase() + name.slice(1);
+    };
 
     return (
         <div className="w-full space-y-3">
@@ -193,10 +229,28 @@ export default function FileUpload({ onUploadSuccess, onUploadError }: FileUploa
                 </div>
             </div>
 
-            {/* Available Files Dropdown */}
-            {availableFiles.length > 0 && (
+            {/* Public Facilities Section */}
+            {availableFiles.public_facilities.length > 0 && (
                 <div>
-                    <label className="block text-sm text-gray-600 mb-1">Or select from available datasets:</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Public Facilities (OpenStreetMap)</label>
+                    <select
+                        onChange={(e) => handleLoadPublicFile(e.target.value)}
+                        disabled={isUploading}
+                        defaultValue=""
+                        className="w-full py-2 px-3 bg-blue-50 border border-blue-200 text-gray-700 rounded-lg text-sm focus:ring-blue-500 focus:border-blue-500 disabled:opacity-50"
+                    >
+                        <option value="" disabled>Select public facility type...</option>
+                        {availableFiles.public_facilities.map(file => (
+                            <option key={file} value={file}>{formatPublicName(file)}</option>
+                        ))}
+                    </select>
+                </div>
+            )}
+
+            {/* User Data Files */}
+            {availableFiles.user_data.length > 0 && (
+                <div>
+                    <label className="block text-sm text-gray-600 mb-1">Or select from uploaded datasets:</label>
                     <select
                         onChange={(e) => handleLoadFile(e.target.value)}
                         disabled={isUploading}
@@ -204,7 +258,7 @@ export default function FileUpload({ onUploadSuccess, onUploadError }: FileUploa
                         className="w-full py-2 px-3 bg-gray-50 border border-gray-300 text-gray-700 rounded-lg text-sm focus:ring-blue-500 focus:border-blue-500 disabled:opacity-50"
                     >
                         <option value="" disabled>Select a file...</option>
-                        {availableFiles.map(file => (
+                        {availableFiles.user_data.map(file => (
                             <option key={file} value={file}>{file}</option>
                         ))}
                     </select>

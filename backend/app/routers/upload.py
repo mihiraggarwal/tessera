@@ -214,17 +214,30 @@ async def get_sample_data():
 @router.get("/available-files")
 async def get_available_files():
     """
-    List available CSV files in the data folder (excluding test.csv which is sample data).
+    List available CSV files in the data folder, including public facilities.
+    Returns files grouped by category.
     """
-    if not DATA_DIR.exists():
-        return []
+    result = {
+        "user_data": [],
+        "public_facilities": []
+    }
     
-    csv_files = []
-    for f in DATA_DIR.glob("*.csv"):
-        if f.name != "test.csv":  # Exclude sample data file
-            csv_files.append(f.name)
+    # User data files (excluding test.csv which is sample data)
+    if DATA_DIR.exists():
+        for f in DATA_DIR.glob("*.csv"):
+            if f.name != "test.csv":
+                result["user_data"].append(f.name)
     
-    return sorted(csv_files)
+    # Public facilities from data/public folder
+    public_dir = DATA_DIR / "public"
+    if public_dir.exists():
+        for f in public_dir.glob("*.csv"):
+            result["public_facilities"].append(f.name)
+    
+    result["user_data"].sort()
+    result["public_facilities"].sort()
+    
+    return result
 
 
 @router.get("/load-file/{filename}", response_model=UploadResponse)
@@ -292,4 +305,138 @@ async def load_file(filename: str):
         facilities=facilities,
         errors=[]
     )
+
+
+@router.get("/load-public-file/{filename}", response_model=UploadResponse)
+async def load_public_file(filename: str):
+    """
+    Load a public facility CSV file from the data/public folder.
+    """
+    # Security: prevent directory traversal
+    if ".." in filename or "/" in filename or "\\" in filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    
+    public_dir = DATA_DIR / "public"
+    file_path = public_dir / filename
+    
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail=f"File '{filename}' not found")
+    
+    try:
+        df = pd.read_csv(file_path, dtype=str, low_memory=False)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to parse file: {str(e)}")
+    
+    # Normalize column names
+    df.columns = df.columns.str.lower().str.strip().str.replace(' ', '_')
+    
+    facilities = []
+    
+    # Map columns to expected names
+    name_col = next((c for c in df.columns if c in ['name', 'facility_name']), None)
+    lat_col = next((c for c in df.columns if c in ['lat', 'latitude']), None)
+    lng_col = next((c for c in df.columns if c in ['lng', 'lon', 'longitude']), None)
+    type_col = next((c for c in df.columns if c in ['type', 'facility_type']), None)
+    state_col = next((c for c in df.columns if c in ['state', 'state_name']), None)
+    district_col = next((c for c in df.columns if c in ['district', 'district_name']), None)
+    
+    if not all([name_col, lat_col, lng_col]):
+        raise HTTPException(status_code=500, detail="File missing required columns (name, lat, lng)")
+    
+    for idx, row in df.iterrows():
+        try:
+            lat = float(row[lat_col])
+            lng = float(row[lng_col])
+            
+            # Skip invalid coordinates
+            if not (INDIA_BOUNDS["min_lat"] <= lat <= INDIA_BOUNDS["max_lat"] and 
+                    INDIA_BOUNDS["min_lng"] <= lng <= INDIA_BOUNDS["max_lng"]):
+                continue
+            
+            facility = FacilityData(
+                id=f"public_{idx}",
+                name=str(row[name_col]) if pd.notna(row[name_col]) else "Unknown",
+                lat=lat,
+                lng=lng,
+                type=str(row[type_col]) if type_col and pd.notna(row.get(type_col)) else None,
+                state=str(row[state_col]) if state_col and pd.notna(row.get(state_col)) else None,
+                district=str(row[district_col]) if district_col and pd.notna(row.get(district_col)) else None,
+            )
+            facilities.append(facility)
+            
+        except (ValueError, TypeError):
+            continue
+    
+    return UploadResponse(
+        success=len(facilities) > 0,
+        total_rows=len(df),
+        valid_facilities=len(facilities),
+        facilities=facilities,
+        errors=[]
+    )
+
+
+@router.get("/bus-stops/{state_name}", response_model=UploadResponse)
+async def get_bus_stops_for_state(state_name: str):
+    """
+    Dynamically fetch bus stops for a specific state from OpenStreetMap.
+    This is only available when filtering by state to avoid overwhelming data.
+    """
+    import requests
+    
+    # Validate state name
+    if not state_name or len(state_name) < 2:
+        raise HTTPException(status_code=400, detail="Invalid state name")
+    
+    # Query Overpass API for bus stops in the state
+    query = f"""
+    [out:json][timeout:60];
+    area["name"="{state_name}"]["admin_level"="4"]->.state;
+    (
+      node["highway"="bus_stop"](area.state);
+    );
+    out body;
+    """
+    
+    try:
+        response = requests.post(
+            "https://overpass-api.de/api/interpreter",
+            data={"data": query},
+            timeout=90
+        )
+        response.raise_for_status()
+        result = response.json()
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Failed to fetch bus stops: {str(e)}")
+    
+    facilities = []
+    for idx, element in enumerate(result.get("elements", [])):
+        if element.get("type") == "node":
+            tags = element.get("tags", {})
+            lat, lng = element["lat"], element["lon"]
+            
+            # Validate coordinates
+            if not (INDIA_BOUNDS["min_lat"] <= lat <= INDIA_BOUNDS["max_lat"] and 
+                    INDIA_BOUNDS["min_lng"] <= lng <= INDIA_BOUNDS["max_lng"]):
+                continue
+            
+            facility = FacilityData(
+                id=f"bus_{idx}",
+                name=tags.get("name", tags.get("name:en", "Bus Stop")),
+                lat=lat,
+                lng=lng,
+                type="bus_stop",
+                state=state_name,
+                district=tags.get("addr:district", None),
+            )
+            facilities.append(facility)
+    
+    return UploadResponse(
+        success=len(facilities) > 0,
+        total_rows=len(result.get("elements", [])),
+        valid_facilities=len(facilities),
+        facilities=facilities,
+        errors=[]
+    )
+
 
