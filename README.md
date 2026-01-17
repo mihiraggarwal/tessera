@@ -1,58 +1,84 @@
 # Tessera
 
-Voronoi-based population mapping for health facility catchment areas in India. Upload facility coordinates, compute Voronoi diagrams clipped to India's boundaries, and visualize population coverage.
+Tessera is a spatial analytics platform designed for policymakers, urban planners, and companies to optimize facility placement and aid in smart city planning. By leveraging Voronoi Diagrams and geospatial data, Tessera computes facilities catchment areas and provides insights into future planning.
 
-## Features
+---
 
-- **Voronoi Diagrams** - Compute facility catchment areas clipped to India
-- **Population Integration** - Color cells by estimated catchment population
-- **Boundary Overlays** - Toggle state/district administrative boundaries
-- **Export** - Download as PNG screenshot or GeoJSON data
-- **Interactive Map** - Click cells for population breakdown
+## Why?
+
+Policymakers and urban planners often need to heavily optimize facility placement to ensure equitable access to services, especially with essential services like emergency response centers, health centers, schools, etc.
+
+Companies often need (and lack) information on the catchment of their facilities, and where they can open new facilities to maximize market reach. The company in this case can range all the way from a Max Hospital to a Dominos to a Reliance Retail Store.
+
+From a consumer's point of view, our app helps them get insights about their locality, and how "smartly" it is planned, especially as we continue adding more essential services onto the app.
+
+All of this is possible using the powerful Voronoi Diagrams, which mathematically and graphically define the areas each facility serves.
+
+## Core Features
+
+### Dynamic Catchment Computation
+- **Voronoi Diagrams**: Automatically compute service areas for any set of facilities on an interactive map.
+- **Dynamic Facility Management**: Add or remove facilities directly on the map to simulate "what-if" scenarios.
+- **State Planning**: All diagrams and analyses can be performed at a country-level and at individual state-levels.
+
+### Analysis and Insights
+- **Population Integration**: Integrates population data to estimate the actual number of people served by each facility.
+- **Population Density Insights**: Visualize underserved vs. over-burdened areas using color-coded heatmaps and Largest Empty Circles (LEC).
+- **Data-Driven Recommendations**: Automated suggestions for facility relocation or expansion based on population load and service gaps.
+
+### Data Exportability
+- **Image Export**: Download current map views as PNG images for reports.
+- **Geospatial Export**: Export computed Voronoi cells and population data as GeoJSON for further analysis in GIS tools.
+
+---
 
 ## Tech Stack
 
-| Layer | Technology |
-|-------|------------|
-| Frontend | Next.js 16, React, TypeScript, Tailwind, Leaflet |
-| Backend | Python FastAPI, SciPy, Shapely, GeoPandas |
-| Data | GADM boundaries, Census 2011 population |
+### Frontend
+- **Framework**: Next.js (React)
+- **Mapping**: Leaflet with `react-leaflet`
+- **Styling**: Tailwind CSS
+- **Utilities**: html-to-image for map exports
 
-## Quick Start
+### Backend
+- **Framework**: FastAPI (Python)
+- **GIS Engine**: GeoPandas and Shapely
+- **Analysis**: SciPy (for Voronoi calculation) and NumPy
+- **Data Handling**: Pandas for CSV and population processing
 
+---
+
+## Getting Started
+
+You can view the app [here](https://tessera-chi.vercel.app/). If you want to run it locally, follow the instructions below.
+
+### Prerequisites
+- Python 3.9+
+- Node.js 18+
+- npm or yarn
+
+### 1. Backend Setup
 ```bash
-# Backend
-cd backend && pip install -r requirements.txt && uvicorn app.main:app --reload --port 8000
-
-# Frontend  
-cd frontend && npm install && npm run dev
+cd backend
+python -m venv .venv
+source .venv/bin/activate  # On Windows use: .venv\Scripts\activate
+pip install -r requirements.txt
+uvicorn app.main:app --reload --port 8000
 ```
 
-Open http://localhost:3000 and click **Load Sample Data** to get started.
-
-## API Endpoints
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/voronoi/compute` | POST | Compute Voronoi from coordinates |
-| `/api/population/districts` | GET | District boundaries GeoJSON |
-| `/api/population/states` | GET | State boundaries GeoJSON |
-| `/api/upload/csv` | POST | Upload facility CSV |
-
-## Project Structure
-
+### 2. Frontend Setup
+```bash
+cd frontend
+npm install
+npm run dev
 ```
-tessera/
-├── backend/
-│   ├── app/
-│   │   ├── routers/      # API endpoints
-│   │   ├── services/     # Business logic
-│   │   └── data/         # GeoJSON & CSV
-│   └── requirements.txt
-└── frontend/
-    ├── src/
-    │   ├── app/          # Next.js pages
-    │   ├── components/   # React components
-    │   └── lib/          # API client, utilities
-    └── package.json
-```
+Open [http://localhost:3000](http://localhost:3000) to view the application.
+
+---
+
+## Data Requirements
+For custom facility analysis, upload a CSV with the following columns:
+- `name`: Name of the facility
+- `lat`: Latitude (decimal)
+- `lng`: Longitude (decimal)
+- `type` (Optional): Category of the facility
