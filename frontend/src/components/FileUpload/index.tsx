@@ -248,22 +248,20 @@ export default function FileUpload({ onUploadSuccess, onUploadError }: FileUploa
             )}
 
             {/* User Data Files */}
-            {availableFiles.user_data.length > 0 && (
-                <div>
-                    <label className="block text-sm text-gray-600 mb-1">Or select from uploaded datasets:</label>
-                    <select
-                        onChange={(e) => handleLoadFile(e.target.value)}
-                        disabled={isUploading}
-                        defaultValue=""
-                        className="w-full py-2 px-3 bg-gray-50 border border-gray-300 text-gray-700 rounded-lg text-sm focus:ring-blue-500 focus:border-blue-500 disabled:opacity-50"
-                    >
-                        <option value="" disabled>Select a file...</option>
-                        {availableFiles.user_data.map(file => (
-                            <option key={file} value={file}>{file}</option>
-                        ))}
-                    </select>
-                </div>
-            )}
+            <div>
+                <label className="block text-sm text-gray-600 mb-1">Or select from uploaded datasets:</label>
+                <select
+                    onChange={(e) => handleLoadFile(e.target.value)}
+                    disabled={isUploading}
+                    defaultValue=""
+                    className="w-full py-2 px-3 bg-gray-50 border border-gray-300 text-gray-700 rounded-lg text-sm focus:ring-blue-500 focus:border-blue-500 disabled:opacity-50"
+                >
+                    <option value="" disabled>Select a file...</option>
+                    {availableFiles.user_data.map(file => (
+                        <option key={file} value={file}>{file}</option>
+                    ))}
+                </select>
+            </div>
 
             {/* Sample Data Button */}
             <button

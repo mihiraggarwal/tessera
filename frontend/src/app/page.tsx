@@ -69,6 +69,11 @@ export default function Home() {
     }
   }, [selectedState]);
 
+  // Go back to the top after map center changed
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, [mapCenter]);
+
   // Filter facilities: always exclude outside India, then optionally filter by state
   const displayedFacilities = useMemo(() => {
     // First filter to only facilities inside India
