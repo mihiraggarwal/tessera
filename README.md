@@ -28,6 +28,8 @@ All of this is possible using the powerful Voronoi Diagrams, which mathematicall
 - **Image Export**: Download current map views as PNG images for reports.
 - **Geospatial Export**: Export computed Voronoi cells and population data as GeoJSON for further analysis in GIS tools.
 
+![Tessera](assets/image.png)
+
 ## Tech Stack
 
 ### Frontend
