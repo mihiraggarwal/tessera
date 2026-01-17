@@ -2,8 +2,6 @@
 
 Tessera is a spatial analytics platform designed for policymakers, urban planners, and companies to optimize facility placement and aid in smart city planning. By leveraging Voronoi Diagrams and geospatial data, Tessera computes facilities catchment areas and provides insights into future planning.
 
----
-
 ## Why?
 
 Policymakers and urban planners often need to heavily optimize facility placement to ensure equitable access to services, especially with essential services like emergency response centers, health centers, schools, etc.
@@ -30,8 +28,6 @@ All of this is possible using the powerful Voronoi Diagrams, which mathematicall
 - **Image Export**: Download current map views as PNG images for reports.
 - **Geospatial Export**: Export computed Voronoi cells and population data as GeoJSON for further analysis in GIS tools.
 
----
-
 ## Tech Stack
 
 ### Frontend
@@ -45,8 +41,6 @@ All of this is possible using the powerful Voronoi Diagrams, which mathematicall
 - **GIS Engine**: GeoPandas and Shapely
 - **Analysis**: SciPy (for Voronoi calculation) and NumPy
 - **Data Handling**: Pandas for CSV and population processing
-
----
 
 ## Getting Started
 
@@ -73,8 +67,6 @@ npm install
 npm run dev
 ```
 Open [http://localhost:3000](http://localhost:3000) to view the application.
-
----
 
 ## Data Requirements
 For custom facility analysis, upload a CSV with the following columns:

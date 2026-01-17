@@ -690,25 +690,6 @@ export default function Home() {
                       </div>
                     )}
 
-                    {/* Most Overburdened - Small list */}
-                    {(facilityInsights?.most_overburdened?.length ?? 0) > 0 && (
-                      <div className="lg:col-span-12 mb-8">
-                        <h4 className="text-[10px] font-bold text-red-600 uppercase mb-3 px-1">Most Overburdened Facilities</h4>
-                        <div className="flex flex-wrap gap-2">
-                          {facilityInsights?.most_overburdened?.slice(0, 5).map((item, i) => (
-                            <button
-                              key={i}
-                              onClick={() => setMapCenter({ lat: item.lat, lng: item.lng, zoom: 10 })}
-                              className="px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-700 text-xs font-bold rounded-full transition-colors flex items-center gap-1.5 shadow-sm"
-                            >
-                              <span className="w-1.5 h-1.5 rounded-full bg-red-400"></span>
-                              {item.name}: {(item.population / 1000000).toFixed(1)}M
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
                     {/* Top 5 Lists */}
                     {insights && (
                       <div className="lg:col-span-12 grid grid-cols-1 md:grid-cols-2 gap-8 pt-8 border-t border-gray-100">
@@ -722,7 +703,7 @@ export default function Home() {
                               <button
                                 key={`pop-${i}`}
                                 onClick={() => setMapCenter({ lat: item.lat, lng: item.lng, zoom: 10 })}
-                                className="w-full flex justify-between items-center group"
+                                className="w-full flex justify-between items-center group hover:cursor-pointer"
                               >
                                 <span className="text-sm text-gray-700 font-medium group-hover:text-indigo-600 transition-colors truncate flex-1 text-left">
                                   {i + 1}. {item.name}
@@ -745,7 +726,7 @@ export default function Home() {
                               <button
                                 key={`den-${i}`}
                                 onClick={() => setMapCenter({ lat: item.lat, lng: item.lng, zoom: 10 })}
-                                className="w-full flex justify-between items-center group"
+                                className="w-full flex justify-between items-center group hover:cursor-pointer"
                               >
                                 <span className="text-sm text-gray-700 font-medium group-hover:text-indigo-600 transition-colors truncate flex-1 text-left">
                                   {i + 1}. {item.name}
