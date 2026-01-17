@@ -1,8 +1,0 @@
-streamlit
-folium
-pandas
-numpy
-scipy
-shapely
-geopy
-streamlit-folium
