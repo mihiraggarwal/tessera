@@ -14,6 +14,8 @@ All of this is possible using the powerful Voronoi Diagrams, which mathematicall
 
 ## Core Features
 
+![Tessera](assets/image.png)
+
 ### Dynamic Catchment Computation
 - **Voronoi Diagrams**: Automatically compute service areas for any set of facilities on an interactive map.
 - **Dynamic Facility Management**: Add or remove facilities directly on the map to simulate "what-if" scenarios.
@@ -27,8 +29,6 @@ All of this is possible using the powerful Voronoi Diagrams, which mathematicall
 ### Data Exportability
 - **Image Export**: Download current map views as PNG images for reports.
 - **Geospatial Export**: Export computed Voronoi cells and population data as GeoJSON for further analysis in GIS tools.
-
-![Tessera](assets/image.png)
 
 ## Tech Stack
 
