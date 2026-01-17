@@ -296,7 +296,7 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
       {/* Header */}
-      <header className="bg-white/80 backdrop-blur-sm border-b border-gray-200 sticky top-0 z-50">
+      <header className="bg-white/80 backdrop-blur-sm border-b border-gray-200 sticky top-0 z-2000">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -359,7 +359,7 @@ export default function Home() {
                     className={`relative w-12 h-6 rounded-full transition-colors ${showVoronoi ? 'bg-blue-500' : 'bg-gray-300'
                       }`}
                   >
-                    <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${showVoronoi ? 'translate-x-6' : 'translate-x-0.5'
+                    <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${showVoronoi ? 'translate-x-0.5' : '-translate-x-5.5'
                       }`} />
                   </button>
                 </div>
@@ -400,7 +400,7 @@ export default function Home() {
                       onClick={() => setFilterOutOfRegion(!filterOutOfRegion)}
                       className={`relative w-12 h-6 rounded-full transition-colors ${filterOutOfRegion ? 'bg-blue-500' : 'bg-gray-300'}`}
                     >
-                      <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${filterOutOfRegion ? 'translate-x-6' : 'translate-x-0.5'}`} />
+                      <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${filterOutOfRegion ? 'translate-x-0.5' : '-translate-x-5.5'}`} />
                     </button>
                   </div>
                 )}
@@ -449,7 +449,7 @@ export default function Home() {
                       onClick={() => setShowEnclosingCircles(!showEnclosingCircles)}
                       className={`relative w-12 h-6 rounded-full transition-colors ${showEnclosingCircles ? 'bg-orange-500' : 'bg-gray-300'}`}
                     >
-                      <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${showEnclosingCircles ? 'translate-x-6' : 'translate-x-0.5'}`} />
+                      <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${showEnclosingCircles ? 'translate-x-0.5' : '-translate-x-5.5'}`} />
                     </button>
                   </div>
                 )}
