@@ -4,7 +4,7 @@ import { useState, useCallback, useEffect, useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import FileUpload from '@/components/FileUpload';
 import { voronoiApi, populationApi, boundariesApi, type Facility, type GeoJSONFeatureCollection, type GeoJSONFeature, type FacilityInsights } from '@/lib/api';
-import { exportToPNG, exportToGeoJSON } from '@/lib/export';
+import { exportToPNG2, exportToGeoJSON } from '@/lib/export';
 import * as turf from '@turf/turf';
 
 // Dynamic import for Map (no SSR)
@@ -39,7 +39,7 @@ export default function Home() {
   // New state for facility management and insights
   const [editMode, setEditMode] = useState<'add' | 'remove' | null>(null);
   const [facilityInsights, setFacilityInsights] = useState<FacilityInsights | null>(null);
-  const [showEnclosingCircles, setShowEnclosingCircles] = useState(true);
+  const [showEnclosingCircles, setShowEnclosingCircles] = useState(false);
   const [isLoadingInsights, setIsLoadingInsights] = useState(false);
   const [insightsError, setInsightsError] = useState<string | null>(null);
 
@@ -277,7 +277,7 @@ export default function Home() {
     setIsExporting(true);
     setError(null);
     try {
-      await exportToPNG('map-container', 'tessera-voronoi-map.png');
+      await exportToPNG2('map-container', 'tessera-voronoi-map.png');
     } catch (err) {
       setError('Failed to export PNG');
     } finally {
