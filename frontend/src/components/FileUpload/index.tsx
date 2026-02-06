@@ -193,7 +193,7 @@ export default function FileUpload({ onUploadSuccess, onUploadError }: FileUploa
     };
 
     return (
-        <div className="w-full space-y-3">
+        <div className="w-full space-y-4">
             {/* Drop Zone */}
             <div
                 onDragOver={handleDragOver}
@@ -229,17 +229,17 @@ export default function FileUpload({ onUploadSuccess, onUploadError }: FileUploa
                 </div>
             </div>
 
-            {/* Public Facilities Section */}
+            {/* Public Dataset Selection */}
             {availableFiles.public_facilities.length > 0 && (
                 <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Public Facilities (OpenStreetMap)</label>
+                    <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Load Public Dataset (OSM)</label>
                     <select
                         onChange={(e) => handleLoadPublicFile(e.target.value)}
                         disabled={isUploading}
                         defaultValue=""
                         className="w-full py-2 px-3 bg-blue-50 border border-blue-200 text-gray-700 rounded-lg text-sm focus:ring-blue-500 focus:border-blue-500 disabled:opacity-50"
                     >
-                        <option value="" disabled>Select public facility type...</option>
+                        <option value="" disabled>Select public dataset...</option>
                         {availableFiles.public_facilities.map(file => (
                             <option key={file} value={file}>{formatPublicName(file)}</option>
                         ))}
@@ -247,30 +247,48 @@ export default function FileUpload({ onUploadSuccess, onUploadError }: FileUploa
                 </div>
             )}
 
-            {/* User Data Files */}
-            <div>
-                <label className="block text-sm text-gray-600 mb-1">Or select from uploaded datasets:</label>
+            {/* Saved Datasets Selection */}
+            <div className="pt-2 border-t border-gray-100">
+                <div className="flex items-center justify-between mb-2">
+                    <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider">Load Saved Dataset</label>
+                    <button
+                        onClick={() => {
+                            uploadApi.getAvailableFiles().then(setAvailableFiles);
+                        }}
+                        className="text-blue-600 hover:text-blue-800 p-1 rounded-md hover:bg-blue-50 transition-colors"
+                        title="Refresh file list"
+                    >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                        </svg>
+                    </button>
+                </div>
                 <select
                     onChange={(e) => handleLoadFile(e.target.value)}
                     disabled={isUploading}
                     defaultValue=""
                     className="w-full py-2 px-3 bg-gray-50 border border-gray-300 text-gray-700 rounded-lg text-sm focus:ring-blue-500 focus:border-blue-500 disabled:opacity-50"
                 >
-                    <option value="" disabled>Select a file...</option>
+                    <option value="" disabled>Select a saved file...</option>
                     {availableFiles.user_data.map(file => (
                         <option key={file} value={file}>{file}</option>
                     ))}
+                    {availableFiles.user_data.length === 0 && (
+                        <option disabled>No saved files found</option>
+                    )}
                 </select>
             </div>
 
-            {/* Sample Data Button */}
-            <button
-                onClick={handleLoadSampleData}
-                disabled={isUploading}
-                className="w-full py-2 px-4 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
-            >
-                {isUploading ? 'Loading...' : 'Use Sample Data (test.csv)'}
-            </button>
+            {/* Sample Data Selection */}
+            <div className="pt-1">
+                <button
+                    onClick={handleLoadSampleData}
+                    disabled={isUploading}
+                    className="w-full py-2 px-4 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-xs font-medium transition-colors disabled:opacity-50"
+                >
+                    {isUploading ? 'Loading...' : 'Use Sample Data (test.csv)'}
+                </button>
+            </div>
         </div>
     );
 }

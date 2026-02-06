@@ -12,6 +12,7 @@ router = APIRouter()
 
 # Path to data folder (from backend/app/routers/ -> tessera/data/)
 DATA_DIR = Path(__file__).parent.parent.parent.parent / "data"
+RAW_DATA_DIR = DATA_DIR / "raw"
 
 
 class FacilityData(BaseModel):
@@ -145,6 +146,33 @@ async def upload_csv(file: UploadFile = File(...)):
         facilities=facilities,
         errors=errors[:50]  # Limit errors to first 50
     )
+
+
+@router.post("/raw-csv")
+async def upload_raw_csv(file: UploadFile = File(...)):
+    """
+    Upload a CSV file without validation, storing it in the raw folder.
+    Returns the file path for further analysis.
+    """
+    if not file.filename.endswith('.csv'):
+        raise HTTPException(status_code=400, detail="File must be a CSV")
+        
+    RAW_DATA_DIR.mkdir(parents=True, exist_ok=True)
+    
+    file_path = RAW_DATA_DIR / file.filename
+    
+    try:
+        contents = await file.read()
+        with open(file_path, "wb") as f:
+            f.write(contents)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to save file: {str(e)}")
+        
+    return {
+        "success": True,
+        "filename": file.filename,
+        "path": str(file_path)
+    }
 
 
 @router.get("/sample-data", response_model=UploadResponse)

@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { chatApi, type ChatMessage } from '@/lib/api';
+import { chatApi, uploadApi, type ChatMessage } from '@/lib/api';
 
 interface ChatPanelProps {
     isOpen: boolean;
@@ -24,6 +24,8 @@ export default function ChatPanel({ isOpen, onClose }: ChatPanelProps) {
     const [apiKey, setApiKey] = useState('');
     const [provider, setProvider] = useState<AIProvider>('openai');
     const [showApiKeyInput, setShowApiKeyInput] = useState(false);
+    const [isDragging, setIsDragging] = useState(false);
+    const [isUploading, setIsUploading] = useState(false);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLInputElement>(null);
 
@@ -86,6 +88,79 @@ export default function ChatPanel({ isOpen, onClose }: ChatPanelProps) {
         setApiKey('');
         setShowApiKeyInput(true);
     }, []);
+
+    const handleUploadFile = useCallback(async (file: File) => {
+        if (!file.name.endsWith('.csv') || !sessionId || !apiKey || isUploading) return;
+
+        setIsUploading(true);
+        setError(null);
+
+        try {
+            const response = await uploadApi.uploadRawCSV(file);
+
+            if (response.success) {
+                // Add a local message indicating upload
+                const systemMsg: ChatMessage = {
+                    role: 'assistant',
+                    content: `📁 **File Uploaded**: \`${file.name}\`\nI've received your dataset. I'll analyze its structure and help you map the columns for analysis.`,
+                    timestamp: new Date().toISOString(),
+                };
+                setMessages(prev => [...prev, systemMsg]);
+
+                // Send a hidden instruction to the LLM
+                await chatApi.sendMessage({
+                    session_id: sessionId,
+                    message: `[SYSTEM] User uploaded a new dataset: ${file.name}. Path: ${response.path}. Please analyze the dataset using the 'analyze_dataset' tool and guide the user through mapping the columns.`,
+                    api_key: apiKey,
+                    provider: provider,
+                });
+
+                // Trigger a refresh/response from the agent by sending another message or just waiting for the first one's response
+                // Actually, the above sendMessage will get a response which we should handle
+                const agentResponse = await chatApi.sendMessage({
+                    session_id: sessionId,
+                    message: `I've uploaded the file ${file.name}. What should I do next?`,
+                    api_key: apiKey,
+                    provider: provider,
+                });
+
+                const assistantMessage: ChatMessage = {
+                    role: 'assistant',
+                    content: agentResponse.response,
+                    timestamp: agentResponse.timestamp,
+                };
+
+                setMessages(prev => [...prev, assistantMessage]);
+            }
+        } catch (err) {
+            setError('Failed to upload file');
+            console.error(err);
+        } finally {
+            setIsUploading(false);
+            setIsDragging(false);
+        }
+    }, [sessionId, apiKey, isUploading, provider]);
+
+    const handleDragOver = useCallback((e: React.DragEvent) => {
+        e.preventDefault();
+        if (apiKey && sessionId) {
+            setIsDragging(true);
+        }
+    }, [apiKey, sessionId]);
+
+    const handleDragLeave = useCallback((e: React.DragEvent) => {
+        e.preventDefault();
+        setIsDragging(false);
+    }, []);
+
+    const handleDrop = useCallback((e: React.DragEvent) => {
+        e.preventDefault();
+        setIsDragging(false);
+        const file = e.dataTransfer.files[0];
+        if (file) {
+            handleUploadFile(file);
+        }
+    }, [handleUploadFile]);
 
     const handleSendMessage = useCallback(async () => {
         if (!input.trim() || !sessionId || !apiKey || isLoading) return;
@@ -150,7 +225,13 @@ export default function ChatPanel({ isOpen, onClose }: ChatPanelProps) {
     if (!isOpen) return null;
 
     return (
-        <div className="fixed bottom-4 right-4 w-96 h-[600px] bg-white rounded-2xl shadow-2xl border border-gray-200 flex flex-col overflow-hidden z-[3000]">
+        <div
+            className={`fixed bottom-4 right-4 w-96 h-[600px] bg-white rounded-2xl shadow-2xl border border-gray-200 flex flex-col overflow-hidden z-[3000] ${isDragging ? 'ring-2 ring-indigo-500 shadow-indigo-200' : ''}`}
+            onDragEnter={handleDragOver}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+        >
             {/* Header */}
             <div className="bg-gray-50 px-4 py-3 border-b border-gray-200 flex items-center justify-between">
                 <div className="flex items-center gap-2">
@@ -160,34 +241,37 @@ export default function ChatPanel({ isOpen, onClose }: ChatPanelProps) {
                         </svg>
                     </div>
                     <div>
-                        <h3 className="font-semibold text-gray-900 text-sm">Tessera Assistant</h3>
-                        <p className="text-xs text-gray-500">Ask about facility data</p>
+                        <h2 className="font-bold">Tessera Assistant</h2>
+                        <div className="flex items-center gap-1.5">
+                            <span className="w-1.5 h-1.5 bg-green-400 rounded-full animate-pulse" />
+                            <span className="text-[10px] text-indigo-100 font-medium uppercase tracking-wider">AI Powered</span>
+                        </div>
                     </div>
                 </div>
                 <div className="flex items-center gap-1">
                     <button
                         onClick={handleNewChat}
-                        className="p-1.5 hover:bg-gray-200 rounded-lg transition-colors"
+                        className="p-1.5 hover:bg-white/10 rounded-lg transition-colors"
                         title="New conversation"
                     >
-                        <svg className="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                         </svg>
                     </button>
                     <button
                         onClick={() => setShowApiKeyInput(!showApiKeyInput)}
-                        className="p-1.5 hover:bg-gray-200 rounded-lg transition-colors"
+                        className="p-1.5 hover:bg-white/10 rounded-lg transition-colors"
                         title="API Key settings"
                     >
-                        <svg className="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
                         </svg>
                     </button>
                     <button
                         onClick={onClose}
-                        className="p-1.5 hover:bg-gray-200 rounded-lg transition-colors"
+                        className="p-1.5 hover:bg-white/10 rounded-lg transition-colors"
                     >
-                        <svg className="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                         </svg>
                     </button>
@@ -196,27 +280,24 @@ export default function ChatPanel({ isOpen, onClose }: ChatPanelProps) {
 
             {/* API Key Input */}
             {showApiKeyInput && (
-                <div className="p-4 bg-amber-50 border-b border-amber-200">
-                    <div className="mb-3">
-                        <label className="block text-sm font-medium text-amber-800 mb-2">
-                            AI Provider
-                        </label>
-                        <div className="flex gap-2">
+                <div className="p-4 bg-amber-50 border-b border-amber-100 animate-in slide-in-from-top duration-300">
+                    <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-2 text-amber-800">
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+                            </svg>
+                            <span className="text-xs font-bold uppercase tracking-wider">Settings</span>
+                        </div>
+                        <div className="flex bg-white rounded-lg p-0.5 border border-amber-200">
                             <button
                                 onClick={() => setProvider('openai')}
-                                className={`flex-1 px-3 py-2 text-sm font-medium rounded-lg transition-colors ${provider === 'openai'
-                                    ? 'bg-amber-600 text-white'
-                                    : 'bg-white text-amber-800 border border-amber-300 hover:bg-amber-100'
-                                    }`}
+                                className={`px-2 py-1 text-[10px] font-bold rounded-md transition-all ${provider === 'openai' ? 'bg-amber-600 text-white shadow-sm' : 'text-amber-600 hover:bg-amber-50'}`}
                             >
                                 OpenAI
                             </button>
                             <button
                                 onClick={() => setProvider('gemini')}
-                                className={`flex-1 px-3 py-2 text-sm font-medium rounded-lg transition-colors ${provider === 'gemini'
-                                    ? 'bg-amber-600 text-white'
-                                    : 'bg-white text-amber-800 border border-amber-300 hover:bg-amber-100'
-                                    }`}
+                                className={`px-2 py-1 text-[10px] font-bold rounded-md transition-all ${provider === 'gemini' ? 'bg-amber-600 text-white shadow-sm' : 'text-amber-600 hover:bg-amber-50'}`}
                             >
                                 Gemini
                             </button>
@@ -256,7 +337,19 @@ export default function ChatPanel({ isOpen, onClose }: ChatPanelProps) {
             )}
 
             {/* Messages */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+            <div
+                className={`flex-1 overflow-y-auto p-4 space-y-4 relative ${isDragging ? 'bg-indigo-50/50' : ''}`}
+            >
+                {isDragging && (
+                    <div className="absolute inset-0 z-10 flex items-center justify-center bg-indigo-50/80 pointer-events-none border-2 border-dashed border-indigo-400 m-2 rounded-xl">
+                        <div className="text-center">
+                            <svg className="w-12 h-12 text-indigo-500 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                            </svg>
+                            <p className="text-indigo-700 font-medium">Drop CSV to analyze</p>
+                        </div>
+                    </div>
+                )}
                 {messages.length === 0 && !showApiKeyInput && (
                     <div className="text-center py-8">
                         <div className="w-12 h-12 rounded-full bg-indigo-100 flex items-center justify-center mx-auto mb-3">
@@ -329,6 +422,15 @@ export default function ChatPanel({ isOpen, onClose }: ChatPanelProps) {
                                 <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
                                 <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
                             </div>
+                        </div>
+                    </div>
+                )}
+
+                {isUploading && (
+                    <div className="flex justify-start">
+                        <div className="bg-indigo-50 border border-indigo-100 px-4 py-3 rounded-2xl rounded-bl-md flex items-center gap-3">
+                            <div className="w-4 h-4 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+                            <span className="text-xs text-indigo-700 font-medium">Uploading dataset...</span>
                         </div>
                     </div>
                 )}
