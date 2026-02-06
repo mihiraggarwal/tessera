@@ -233,6 +233,135 @@ class AnalyticsService:
             "radius_km": best_radius / 1000
         }
     
+    def find_optimal_facility_location(
+        self,
+        facility_coords: List[Tuple[float, float]],
+        boundary_geom: Optional[Any] = None,
+        districts_gdf: Optional[gpd.GeoDataFrame] = None
+    ) -> Dict[str, Any]:
+        """
+        Find the optimal location for a new facility based on population impact.
+        Uses Voronoi vertices as candidate locations and scores each by
+        the population that would be within its catchment area.
+        
+        Args:
+            facility_coords: List of existing facility (lng, lat) tuples
+            boundary_geom: Optional boundary geometry (Polygon) to constrain search
+            districts_gdf: GeoDataFrame with district boundaries and population data
+            
+        Returns:
+            Dictionary with optimal location, estimated population, and reasoning
+        """
+        if len(facility_coords) < 3:
+            return {"success": False, "message": "Need at least 3 facilities"}
+        
+        if districts_gdf is None:
+            # Try to load from PopulationService
+            try:
+                from app.services.population_calc import PopulationService
+                pop_service = PopulationService()
+                districts_gdf = pop_service._districts_gdf
+            except Exception as e:
+                return {"success": False, "message": f"Could not load population data: {e}"}
+        
+        if districts_gdf is None or len(districts_gdf) == 0:
+            return {"success": False, "message": "No district population data available"}
+        
+        # Project coordinates
+        projected = self._project_coords(facility_coords)
+        
+        # Project boundary if provided
+        boundary_projected = None
+        if boundary_geom:
+            try:
+                gs = gpd.GeoSeries([boundary_geom], crs="EPSG:4326")
+                gs_proj = gs.to_crs(self.CRS_PROJECTED)
+                boundary_projected = gs_proj.iloc[0]
+            except Exception as e:
+                print(f"Error projecting boundary: {e}")
+        
+        # Project districts
+        try:
+            districts_proj = districts_gdf.to_crs(self.CRS_PROJECTED)
+        except Exception as e:
+            return {"success": False, "message": f"Error projecting districts: {e}"}
+        
+        try:
+            # Compute Voronoi diagram
+            vor = Voronoi(projected)
+            
+            candidates = []
+            
+            for vertex in vor.vertices:
+                # Must be within boundary if provided
+                if boundary_projected and not boundary_projected.contains(Point(vertex)):
+                    continue
+                
+                # Calculate distance to nearest facility (catchment radius)
+                distances = np.linalg.norm(projected - vertex, axis=1)
+                radius = np.min(distances)
+                
+                # Skip very small radii
+                if radius < 1000:  # Less than 1km
+                    continue
+                
+                # Create catchment circle
+                catchment = Point(vertex).buffer(radius)
+                
+                # Calculate population in catchment area
+                total_pop = 0
+                intersecting = districts_proj.sindex.query(catchment, predicate='intersects')
+                
+                for idx in intersecting:
+                    district = districts_proj.iloc[idx]
+                    intersection = catchment.intersection(district.geometry)
+                    if not intersection.is_empty:
+                        # Weighted population based on area overlap
+                        if district.geometry.area > 0:
+                            ratio = intersection.area / district.geometry.area
+                            pop = district.get('population', 0) or 0
+                            total_pop += pop * ratio
+                
+                candidates.append({
+                    'center_proj': vertex,
+                    'radius_m': radius,
+                    'population': total_pop
+                })
+            
+            if not candidates:
+                return {"success": False, "message": "No valid candidate locations found within boundary"}
+            
+            # Sort by population (highest first)
+            candidates.sort(key=lambda x: x['population'], reverse=True)
+            best = candidates[0]
+            
+            # Convert back to WGS84
+            center_wgs84 = self._unproject_point(best['center_proj'][0], best['center_proj'][1])
+            
+            return {
+                "success": True,
+                "optimal_location": {
+                    "lng": center_wgs84[0],
+                    "lat": center_wgs84[1]
+                },
+                "catchment_radius_km": round(best['radius_m'] / 1000, 2),
+                "estimated_population": int(best['population']),
+                "candidates_evaluated": len(candidates),
+                "top_alternatives": [
+                    {
+                        "lng": self._unproject_point(c['center_proj'][0], c['center_proj'][1])[0],
+                        "lat": self._unproject_point(c['center_proj'][0], c['center_proj'][1])[1],
+                        "population": int(c['population'])
+                    }
+                    for c in candidates[1:4]  # Top 3 alternatives
+                ]
+            }
+            
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            return {"success": False, "message": f"Error computing optimal location: {e}"}
+    
     def find_nearest_facility_index(
         self,
         click_coords: Tuple[float, float],

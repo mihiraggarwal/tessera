@@ -1,9 +1,14 @@
 """
-Chat service - LangChain agent with tools for spatial queries.
+Chat service - LangChain agent with Python REPL for spatial queries.
 Supports multiple AI providers: OpenAI and Google Gemini.
+
+This implementation uses a sandboxed Python execution environment
+allowing the LLM to write arbitrary queries against the DCEL,
+with an agentic retry loop for self-correction.
 """
 from typing import List, Dict, Optional, Any
 from datetime import datetime
+from difflib import get_close_matches
 
 from langchain_openai import ChatOpenAI
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -11,7 +16,10 @@ from langchain_classic.agents import AgentExecutor, create_tool_calling_agent
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain.tools import tool
 from langchain_core.messages import HumanMessage, AIMessage
+
 from app.services.dcel import get_current_dcel
+from app.services.python_executor import get_executor
+from app.services.helper_functions import create_helper_functions
 
 
 # In-memory conversation storage
@@ -41,215 +49,310 @@ def clear_conversation(session_id: str) -> None:
         del _conversations[session_id]
 
 
-# Tool definitions that wrap existing API endpoints
-BASE_URL = "http://localhost:8000"
-
+# =============================================================================
+# REPL-BASED TOOLS (4 core tools)
+# =============================================================================
 
 @tool
-def query_point_facility(lat: float, lng: float) -> dict:
+def execute_python(code: str) -> dict:
     """
-    Find which facility serves a given location based on Voronoi cells.
+    Execute Python code to query and analyze facility data.
+    
+    AVAILABLE IN CODE:
+    - dcel: DCEL object with all facility faces (dcel.faces is the list)
+    - np, pd, math: NumPy, Pandas, math libraries
+    - Helper functions: safe_filter_by_state(), safe_get_property(), get_stats()
+    - Metadata: unique_states, unique_districts, total_facilities
+    
+    RULES:
+    - Use print() to output results
+    - Use helper functions for state/district lookups (handles fuzzy matching)
+    - Handle missing data with safe_get_property(f, 'field', default)
     
     Args:
-        lat: Latitude of the location to query
-        lng: Longitude of the location to query
+        code: Python code to execute (30s timeout)
     
     Returns:
-        Information about the facility serving this location
+        {success: bool, output: str} or {success: false, error: str, hint: str}
+    
+    Example:
+        facilities = safe_filter_by_state('Maharashtra')
+        print(f"Count: {len(facilities)}")
     """
-    print(f"[TOOL DEBUG] query_point_facility called with lat={lat}, lng={lng}")
-    dcel = get_current_dcel()
-    if not dcel:
-        return {"error": "No Voronoi diagram available. Please load facilities and compute Voronoi first."}
-        
-    face = dcel.point_query(lat, lng)
-    if not face:
-        return {"found": False}
-        
-    props = face.properties or {}
+    print(f"[TOOL DEBUG] execute_python called with code:\n{code[:200]}...")
     
-    # Optimization: Prune 'properties'
-    clean_props = {k: v for k, v in props.items() if isinstance(v, (str, int, float)) and len(str(v)) < 100}
-
-    result = {
-        "found": True,
-        "facility_id": face.facility_id,
-        "facility_name": face.facility_name,
-        "population": props.get('population'),
-        "area_km2": props.get('area_sq_km'),
-        "properties": clean_props
-    }
+    executor = get_executor()
+    result = executor.execute(code)
     
-    print(f"[TOOL DEBUG] query_point_facility response: {result}")
+    print(f"[TOOL DEBUG] execute_python result: {str(result)[:300]}...")
     return result
 
 
 @tool
-def get_top_facilities_by_population(top_n: int = 10, state: str = None) -> dict:
+def get_available_values(field: str) -> dict:
     """
-    Get facilities ranked by population served.
+    Get all unique values for a field in the dataset.
+    Use when you get 'not found' errors to see what values exist.
     
     Args:
-        top_n: Number of top facilities to return (default 10, max 100)
-        state: Optional state name to filter results (e.g., 'Maharashtra', 'Delhi')
+        field: Property name like 'state', 'district', 'type'
     
     Returns:
-        List of facilities ranked by population served
+        {field: str, values: list, count: int}
+    
+    Example: get_available_values('state') -> all state names
     """
-    # Convert to int in case LLM passes float
-    top_n_int = int(top_n) if top_n else 10
-    print(f"[TOOL DEBUG] get_top_facilities called with top_n={top_n_int}, state={state}")
+    print(f"[TOOL DEBUG] get_available_values called for field: {field}")
     
     dcel = get_current_dcel()
     if not dcel:
-        return {"error": "No Voronoi diagram available. Please load facilities and compute Voronoi first."}
-
-    facilities = dcel.get_facilities_by_population(top_n=min(top_n_int, 100), state=state)
+        return {"error": "No DCEL available. Upload facility data first."}
     
-    # Optimization and formatting
-    optimized_result = []
-    for item in facilities:
-        clean_item = {
-            "name": item.get("name"),
-            "population": item.get("population"),
-            "id": item.get("facility_id")
-        }
+    values = set()
+    for face in dcel.faces:
+        props = face.properties or {}
         
-        # Filter properties
-        props = item.get("properties", {})
-        clean_props = {k: v for k, v in props.items() if isinstance(v, (str, int, float)) and len(str(v)) < 100}
-        if clean_props:
-            clean_item["details"] = clean_props
-            
-        optimized_result.append(clean_item)
-        
-    print(f"[TOOL DEBUG] get_top_facilities response (optimized): {str(optimized_result)[:500]}...")
-    return optimized_result
-
-
-@tool
-def get_facility_neighbors(facility_id: str) -> dict:
-    """
-    Find facilities adjacent to a given facility (sharing a border).
+        # For state/district, try population_breakdown first
+        if field in ['state', 'district']:
+            breakdown = props.get('population_breakdown', [])
+            for region in breakdown:
+                val = region.get(field)
+                if val:
+                    values.add(val)
+            # Also try direct property
+            val = props.get(field)
+            if val:
+                values.add(val)
+        else:
+            val = props.get(field)
+            if val:
+                values.add(val)
     
-    Args:
-        facility_id: ID of the facility to find neighbors for
-    
-    Returns:
-        List of adjacent facilities and their basic info
-    """
-    dcel = get_current_dcel()
-    if not dcel:
-        return {"error": "No Voronoi diagram available."}
-        
-    face = dcel.get_face_by_facility_id(facility_id)
-    if not face:
-        return {"error": f"Facility '{facility_id}' not found"}
-        
-    adjacent_ids = dcel.get_adjacent_facilities(facility_id)
-    
-    adjacent_info = []
-    for adj_id in adjacent_ids:
-        adj_face = dcel.get_face_by_facility_id(adj_id)
-        if adj_face:
-            adjacent_info.append({
-                "facility_id": adj_face.facility_id,
-                "facility_name": adj_face.facility_name
-            })
-            
-    return {
-        "facility_id": facility_id,
-        "facility_name": face.facility_name,
-        "adjacent_count": len(adjacent_info),
-        "adjacent_facilities": adjacent_info
-    }
-
-
-@tool
-def get_dcel_summary() -> dict:
-    """
-    Get summary of the current spatial index including number of facilities and basic stats.
-    
-    Returns:
-        Summary of the current DCEL structure
-    """
-    print("[TOOL DEBUG] get_dcel_summary called")
-    dcel = get_current_dcel()
-    
-    if dcel is None:
-        return {
-            "available": False,
-            "message": "No Voronoi diagram has been computed yet."
-        }
+    sorted_values = sorted(list(values))
     
     result = {
-        "available": True,
-        "data": dcel.to_dict()
+        "field": field,
+        "count": len(sorted_values),
+        "values": sorted_values[:50],  # Limit to 50 to avoid huge responses
+        "truncated": len(sorted_values) > 50
     }
-    print(f"[TOOL DEBUG] get_dcel_summary response: {str(result)[:200]}...")
+    
+    print(f"[TOOL DEBUG] get_available_values found {len(sorted_values)} unique values")
     return result
 
 
 @tool
-def find_facilities_in_area(min_lat: float, min_lng: float, max_lat: float, max_lng: float) -> dict:
+def fuzzy_search(query: str, field: str = "state") -> dict:
     """
-    Find all facilities whose service areas intersect a bounding box region.
+    Find closest matches for a query string.
+    Use when user input might have typos or use alternate names (e.g., 'Bombay' for 'Mumbai').
     
     Args:
-        min_lat: South boundary latitude
-        min_lng: West boundary longitude
-        max_lat: North boundary latitude
-        max_lng: East boundary longitude
+        query: Search term (e.g., 'Dilli', 'Bombay', 'Maharastra')
+        field: Field to search in ('state', 'district', 'name')
     
     Returns:
-        List of facilities in the specified region
+        {query: str, matches: list[str], best_match: str}
+    
+    Example: fuzzy_search('Dilli', 'state') -> matches: ['Delhi']
     """
-    print(f"[TOOL DEBUG] find_facilities called with bounds={min_lat},{min_lng} to {max_lat},{max_lng}")
+    print(f"[TOOL DEBUG] fuzzy_search called for '{query}' in field '{field}'")
+    
     dcel = get_current_dcel()
     if not dcel:
-        return {"error": "No Voronoi diagram available."}
-        
-    faces = dcel.range_query(min_lat, min_lng, max_lat, max_lng)
+        return {"error": "No DCEL available. Upload facility data first."}
     
-    facilities = [
-        {
-            "facility_id": face.facility_id,
-            "facility_name": face.facility_name,
-            "population": face.properties.get('population') if face.properties else None,
-            "area_km2": face.properties.get('area_sq_km') if face.properties else None
-        }
-        for face in faces
-    ]
+    # Get all unique values for the field
+    all_values = set()
+    for face in dcel.faces:
+        if field == 'name':
+            val = face.facility_name
+            if val:
+                all_values.add(val)
+        elif field in ['state', 'district']:
+            # Try population_breakdown first
+            props = face.properties or {}
+            breakdown = props.get('population_breakdown', [])
+            for region in breakdown:
+                val = region.get(field)
+                if val:
+                    all_values.add(val)
+            # Also try direct property
+            val = props.get(field)
+            if val:
+                all_values.add(val)
+        else:
+            props = face.properties or {}
+            val = props.get(field)
+            if val:
+                all_values.add(val)
     
-    return {
-        "count": len(facilities),
-        "facilities": facilities
+    unique_values = list(all_values)
+    
+    # Find close matches
+    matches = get_close_matches(query, unique_values, n=5, cutoff=0.3)
+    
+    result = {
+        "query": query,
+        "field": field,
+        "matches": matches,
+        "best_match": matches[0] if matches else None,
+        "confidence": "high" if matches and matches[0].lower() == query.lower() else "medium" if matches else "none"
     }
+    
+    print(f"[TOOL DEBUG] fuzzy_search found matches: {matches}")
+    return result
 
 
-SYSTEM_PROMPT = """You are a spatial analytics assistant for Tessera, a platform that helps policymakers and urban planners optimize facility placement using Voronoi diagrams.
+@tool
+def inspect_sample(state: str = None, limit: int = 3) -> dict:
+    """
+    Get sample facilities to understand data structure.
+    Use when debugging to see what properties are available.
+    
+    Args:
+        state: Optional state filter (e.g., 'Delhi')
+        limit: Number of samples to return (default 3, max 10)
+    
+    Returns:
+        {total: int, samples: list[dict with facility properties]}
+    """
+    print(f"[TOOL DEBUG] inspect_sample called with state={state}, limit={limit}")
+    
+    dcel = get_current_dcel()
+    if not dcel:
+        return {"error": "No DCEL available. Upload facility data first."}
+    
+    facilities = dcel.faces
+    
+    # Filter by state if provided
+    if state:
+        state_lower = state.lower()
+        facilities = [
+            f for f in facilities
+            if (f.properties or {}).get('state', '').lower() == state_lower
+        ]
+        
+        # Try fuzzy match if exact match returns nothing
+        if not facilities:
+            all_states = set(
+                (f.properties or {}).get('state', '') 
+                for f in dcel.faces
+            )
+            matches = get_close_matches(state, list(all_states), n=1, cutoff=0.6)
+            if matches:
+                matched_state = matches[0]
+                facilities = [
+                    f for f in dcel.faces
+                    if (f.properties or {}).get('state', '') == matched_state
+                ]
+    
+    limit = min(limit, 10)  # Cap at 10
+    samples = facilities[:limit]
+    
+    result = {
+        "total_matching": len(facilities),
+        "samples": [
+            {
+                "facility_id": f.facility_id,
+                "facility_name": f.facility_name,
+                "properties": {
+                    k: v for k, v in (f.properties or {}).items()
+                    if isinstance(v, (str, int, float)) and len(str(v)) < 100
+                }
+            }
+            for f in samples
+        ]
+    }
+    
+    print(f"[TOOL DEBUG] inspect_sample returning {len(samples)} samples from {len(facilities)} matching")
+    return result
 
-You help users analyze facility placement and coverage. You have access to tools for:
-- Finding which facility serves a specific location
-- Getting top facilities ranked by population served
-- Finding adjacent/neighboring facilities
-- Querying facilities within geographic regions
-- Getting summary statistics
 
-When answering questions:
-1. Use your tools to query actual data - never make up numbers
-2. Explain spatial concepts in simple terms for non-technical policymakers
-3. Always include relevant numbers with units (population counts, km, etc.)
-4. Be concise but informative
+# =============================================================================
+# SYSTEM PROMPT
+# =============================================================================
 
-Current context: You are working with facility data in India. Common states include Maharashtra, Delhi, Karnataka, Tamil Nadu, Kerala, Gujarat, Uttar Pradesh, West Bengal, etc.
+def get_system_prompt() -> str:
+    """Generate system prompt with dynamic data."""
+    dcel = get_current_dcel()
+    
+    if dcel:
+        helpers = create_helper_functions(dcel)
+        unique_states = helpers['unique_states'][:15]
+        total_facilities = helpers['total_facilities']
+    else:
+        unique_states = []
+        total_facilities = 0
+    
+    # Build prompt without any curly braces in code examples to avoid template issues
+    prompt = """You are Tessera's spatial analytics assistant helping policymakers optimize facility placement across India.
 
-If the user asks about data that hasn't been loaded yet (no Voronoi diagram computed), politely explain they need to upload facility data first."""
+## YOUR ROLE
+Analyze facility coverage data to answer questions about:
+- Facility distribution and coverage gaps
+- Population served by facilities
+- Optimal locations for new facilities
+- State/district-level statistics and comparisons
 
+## CAPABILITIES
+You can execute Python code against a DCEL containing """ + str(total_facilities) + """ facility Voronoi cells.
+
+## DATA STRUCTURE
+Each facility in dcel.faces has:
+- facility_id, facility_name: Identifiers
+- properties: Dict with state, district, population, area_sq_km, centroid_lat, centroid_lng
+
+## AVAILABLE IN CODE
+- dcel: DCEL object with all facility faces
+- dcel.faces: List of Face objects  
+- Available states: """ + str(unique_states) + """
+- safe_filter_by_state(name): Fuzzy-match filter by state
+- safe_get_property(f, prop, default): Null-safe property access
+- get_stats(facilities): Returns dict with count, total_population, avg_population
+- Libraries: np (numpy), pd (pandas), math
+
+## QUERY PATTERNS
+
+Count facilities:
+  facilities = safe_filter_by_state('Maharashtra')
+  count = len(facilities)
+  print("Facilities in Maharashtra: " + str(count))
+
+Calculate average population:
+  facilities = safe_filter_by_state('Delhi')
+  pops = [safe_get_property(f, 'population', 0) for f in facilities]
+  pops = [p for p in pops if p > 0]
+  avg = sum(pops) / len(pops) if pops else 0
+  print("Average population: " + str(int(avg)))
+
+Find coverage gaps:
+  sorted_by_area = sorted(dcel.faces, key=lambda f: safe_get_property(f, 'area_sq_km', 0), reverse=True)
+  for f in sorted_by_area[:5]:
+      name = f.facility_name
+      area = safe_get_property(f, 'area_sq_km', 0)
+      print(name + ": " + str(int(area)) + " km2")
+
+## IMPORTANT
+- NEVER use f-strings or curly braces in print statements
+- Always use string concatenation: "text " + str(variable)
+- Use safe_get_property for all property access
+- Use print() to show results
+
+## ERROR HANDLING
+If code fails, use get_available_values() or fuzzy_search() to debug, then retry.
+You have up to 3 attempts!
+"""
+    return prompt
+
+
+# =============================================================================
+# AGENT CREATION AND PROCESSING
+# =============================================================================
 
 def create_chat_agent(api_key: str, provider: str = "openai") -> AgentExecutor:
     """
-    Create a LangChain agent with spatial query tools.
+    Create a LangChain agent with Python REPL tools.
     
     Args:
         api_key: API key for the chosen provider
@@ -261,7 +364,7 @@ def create_chat_agent(api_key: str, provider: str = "openai") -> AgentExecutor:
     # Create LLM based on provider
     if provider.lower() == "gemini":
         llm = ChatGoogleGenerativeAI(
-            model="gemini-2.5-flash",
+            model="gemini-3-flash-preview",
             google_api_key=api_key,
             temperature=0
         )
@@ -273,22 +376,27 @@ def create_chat_agent(api_key: str, provider: str = "openai") -> AgentExecutor:
         )
     
     tools = [
-        query_point_facility,
-        get_top_facilities_by_population,
-        get_facility_neighbors,
-        get_dcel_summary,
-        find_facilities_in_area
+        execute_python,
+        get_available_values,
+        fuzzy_search,
+        inspect_sample
     ]
     
     prompt = ChatPromptTemplate.from_messages([
-        ("system", SYSTEM_PROMPT),
+        ("system", get_system_prompt()),
         MessagesPlaceholder(variable_name="chat_history"),
         ("human", "{input}"),
         MessagesPlaceholder(variable_name="agent_scratchpad")
     ])
     
     agent = create_tool_calling_agent(llm, tools, prompt)
-    return AgentExecutor(agent=agent, tools=tools, verbose=True)
+    return AgentExecutor(
+        agent=agent, 
+        tools=tools, 
+        verbose=True,
+        max_iterations=10,
+        handle_parsing_errors=True
+    )
 
 
 def convert_history_to_messages(history: List[Dict]) -> List[Any]:
@@ -327,14 +435,13 @@ async def process_chat_message(
     add_to_conversation(session_id, "user", message)
     
     try:
-        # Create agent and invoke
         # Create LLM based on provider
         if provider.lower() == "gemini":
             llm = ChatGoogleGenerativeAI(
-                model="gemini-2.5-flash",
+                model="gemini-3-flash-preview",
                 google_api_key=api_key,
                 temperature=0,
-                timeout=120.0  # Increase timeout for complex tool chains
+                timeout=120.0
             )
         else:  # default to openai
             llm = ChatOpenAI(
@@ -345,22 +452,27 @@ async def process_chat_message(
             )
         
         tools = [
-            query_point_facility,
-            get_top_facilities_by_population,
-            get_facility_neighbors,
-            get_dcel_summary,
-            find_facilities_in_area
+            execute_python,
+            get_available_values,
+            fuzzy_search,
+            inspect_sample
         ]
         
         prompt = ChatPromptTemplate.from_messages([
-            ("system", SYSTEM_PROMPT),
+            ("system", get_system_prompt()),
             MessagesPlaceholder(variable_name="chat_history"),
             ("human", "{input}"),
             MessagesPlaceholder(variable_name="agent_scratchpad")
         ])
         
         agent = create_tool_calling_agent(llm, tools, prompt)
-        agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
+        agent_executor = AgentExecutor(
+            agent=agent, 
+            tools=tools, 
+            verbose=True,
+            max_iterations=10,
+            handle_parsing_errors=True
+        )
 
         print(f"[CHAT DEBUG] Processing message: {message[:100]}...")
         print(f"[CHAT DEBUG] Provider: {provider}")
@@ -371,7 +483,18 @@ async def process_chat_message(
         })
         
         response = result.get("output", "I couldn't process that request.")
-        print(f"[CHAT DEBUG] Response received: {response[:200]}...")
+        
+        # Handle case where response is a list
+        if isinstance(response, list):
+            text_parts = []
+            for item in response:
+                if isinstance(item, dict) and 'text' in item:
+                    text_parts.append(item['text'])
+                elif isinstance(item, str):
+                    text_parts.append(item)
+            response = "".join(text_parts)
+            
+        print(f"[CHAT DEBUG] Response received: {str(response)[:200]}...")
         
         # Add assistant response to history
         add_to_conversation(session_id, "assistant", response)
