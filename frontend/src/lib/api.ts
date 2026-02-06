@@ -213,4 +213,59 @@ export const healthApi = {
     },
 };
 
+// Chat API for AI assistant
+export interface ChatMessage {
+    role: 'user' | 'assistant';
+    content: string;
+    timestamp: string;
+}
+
+export interface ChatMessageRequest {
+    session_id: string;
+    message: string;
+    api_key: string;
+    provider?: string; // 'openai' or 'gemini'
+}
+
+export interface ChatMessageResponse {
+    response: string;
+    session_id: string;
+    timestamp: string;
+}
+
+export interface ConversationHistoryResponse {
+    session_id: string;
+    messages: ChatMessage[];
+    count: number;
+}
+
+export interface NewSessionResponse {
+    session_id: string;
+    created_at: string;
+}
+
+export const chatApi = {
+    newSession: async (): Promise<NewSessionResponse> => {
+        const response = await api.post('/api/chat/new');
+        return response.data;
+    },
+
+    sendMessage: async (request: ChatMessageRequest): Promise<ChatMessageResponse> => {
+        const response = await api.post('/api/chat/message', request, {
+            timeout: 120000, // 2 minutes for LLM responses
+        });
+        return response.data;
+    },
+
+    getHistory: async (sessionId: string): Promise<ConversationHistoryResponse> => {
+        const response = await api.get(`/api/chat/history/${sessionId}`);
+        return response.data;
+    },
+
+    clearHistory: async (sessionId: string): Promise<{ status: string; session_id: string }> => {
+        const response = await api.delete(`/api/chat/clear/${sessionId}`);
+        return response.data;
+    },
+};
+
 export default api;
