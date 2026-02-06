@@ -198,110 +198,129 @@ class VoronoiEngine:
         """
         Reconstruct all Voronoi regions including infinite ones.
         Extends infinite ridges to bounding box for proper clipping.
+        
+        This implementation handles all points including closely-spaced ones.
         """
+        from scipy.spatial import ConvexHull
+        
         center = vor.points.mean(axis=0)
         
         # Compute a radius large enough to contain all points
         ptp_bound = np.ptp(vor.points, axis=0)
-        radius = max(ptp_bound.max() * 3, 2000000)  # At least 2000km
+        radius = max(ptp_bound.max() * 10, 5000000)  # At least 5000km for full India coverage
         
         polygons = []
-        processed_points = set()
         
         for point_idx, region_idx in enumerate(vor.point_region):
             region = vor.regions[region_idx]
             
+            # Skip empty regions
             if not region:
                 continue
             
-            if -1 not in region:
-                # Finite region - use vertices directly
-                vertices = vor.vertices[region]
-                try:
-                    poly = Polygon(vertices)
-                    if not poly.is_valid:
-                        poly = poly.buffer(0)
-                    if poly.is_valid:
-                        clipped = poly.intersection(bounding_box)
-                        if not clipped.is_empty and clipped.area > 0:
-                            if isinstance(clipped, MultiPolygon):
-                                clipped = max(clipped.geoms, key=lambda p: p.area)
+            try:
+                if -1 not in region:
+                    # Finite region - use vertices directly
+                    vertices = vor.vertices[region]
+                    poly = self._make_valid_polygon(vertices)
+                    if poly is not None:
+                        clipped = self._clip_polygon(poly, bounding_box)
+                        if clipped is not None:
                             polygons.append((point_idx, clipped))
-                            processed_points.add(point_idx)
-                except:
-                    pass
-                continue
-            
-            # Infinite region - need to extend ridges to far points
-            # Find all ridges for this point
-            point_ridges = []
-            for ridge_idx, (p1, p2) in enumerate(vor.ridge_points):
-                if p1 == point_idx or p2 == point_idx:
+                    continue
+                
+                # Infinite region - need to extend ridges to far points
+                # Collect all vertices for this region (both finite and extended)
+                all_vertices = []
+                
+                for ridge_idx, (p1, p2) in enumerate(vor.ridge_points):
+                    if p1 != point_idx and p2 != point_idx:
+                        continue
+                    
                     v1, v2 = vor.ridge_vertices[ridge_idx]
                     other_point = p2 if p1 == point_idx else p1
-                    point_ridges.append((other_point, v1, v2))
-            
-            # Build vertices list with far points
-            vertices = []
-            far_points = []
-            
-            for other_point, v1, v2 in point_ridges:
-                if v1 >= 0:
-                    vertices.append(vor.vertices[v1])
-                if v2 >= 0:
-                    vertices.append(vor.vertices[v2])
-                
-                # Handle infinite vertex
-                if v1 == -1 or v2 == -1:
-                    finite_v = v2 if v1 == -1 else v1
-                    if finite_v >= 0:
-                        # Compute direction for infinite ray
-                        t = vor.points[other_point] - vor.points[point_idx]
-                        t = t / np.linalg.norm(t)
-                        n = np.array([-t[1], t[0]])
-                        
-                        midpoint = (vor.points[point_idx] + vor.points[other_point]) / 2
-                        direction = np.sign(np.dot(midpoint - center, n)) * n
-                        
-                        far_point = vor.vertices[finite_v] + direction * radius
-                        far_points.append(far_point)
-            
-            # Combine all vertices
-            all_vertices = list(vertices) + far_points
-            
-            if len(all_vertices) >= 3:
-                try:
-                    # Sort vertices by angle around the point
-                    point_center = vor.points[point_idx]
-                    angles = [np.arctan2(v[1] - point_center[1], v[0] - point_center[0]) for v in all_vertices]
-                    sorted_vertices = [v for _, v in sorted(zip(angles, all_vertices))]
                     
-                    poly = Polygon(sorted_vertices)
-                    if not poly.is_valid:
-                        poly = poly.buffer(0)
-                    if poly.is_valid and not poly.is_empty:
-                        clipped = poly.intersection(bounding_box)
-                        if not clipped.is_empty and clipped.area > 0:
-                            if isinstance(clipped, MultiPolygon):
-                                clipped = max(clipped.geoms, key=lambda p: p.area)
+                    # Add finite vertices
+                    if v1 >= 0:
+                        all_vertices.append(tuple(vor.vertices[v1]))
+                    if v2 >= 0:
+                        all_vertices.append(tuple(vor.vertices[v2]))
+                    
+                    # Extend infinite vertices
+                    if v1 == -1 or v2 == -1:
+                        finite_v = v2 if v1 == -1 else v1
+                        if finite_v >= 0:
+                            # Compute direction perpendicular to the ridge
+                            t = vor.points[other_point] - vor.points[point_idx]
+                            norm = np.linalg.norm(t)
+                            if norm > 0:
+                                t = t / norm
+                                n = np.array([-t[1], t[0]])
+                                
+                                midpoint = (vor.points[point_idx] + vor.points[other_point]) / 2
+                                direction = np.sign(np.dot(midpoint - center, n)) * n
+                                
+                                far_point = vor.vertices[finite_v] + direction * radius
+                                all_vertices.append(tuple(far_point))
+                
+                # De-duplicate vertices (close points can create duplicate vertices)
+                unique_vertices = list(set(all_vertices))
+                
+                if len(unique_vertices) >= 3:
+                    # Use ConvexHull to properly order vertices
+                    vertices_array = np.array(unique_vertices)
+                    try:
+                        hull = ConvexHull(vertices_array)
+                        ordered_vertices = vertices_array[hull.vertices]
+                        poly = self._make_valid_polygon(ordered_vertices)
+                    except Exception:
+                        # Fallback: try angle-based sorting if ConvexHull fails
+                        point_center = vor.points[point_idx]
+                        angles = [np.arctan2(v[1] - point_center[1], v[0] - point_center[0]) 
+                                  for v in unique_vertices]
+                        sorted_vertices = [v for _, v in sorted(zip(angles, unique_vertices))]
+                        poly = self._make_valid_polygon(np.array(sorted_vertices))
+                    
+                    if poly is not None:
+                        clipped = self._clip_polygon(poly, bounding_box)
+                        if clipped is not None:
                             polygons.append((point_idx, clipped))
-                            processed_points.add(point_idx)
-                except:
-                    pass
-        
-        # Fallback: For any points that didn't get a polygon, create buffer circles
-        for point_idx in range(len(vor.points)):
-            if point_idx not in processed_points:
-                pt = Point(vor.points[point_idx])
-                buffer_size = radius / len(vor.points) * 0.3
-                poly = pt.buffer(buffer_size, resolution=32)
-                clipped = poly.intersection(bounding_box)
-                if not clipped.is_empty and clipped.area > 0:
-                    if isinstance(clipped, MultiPolygon):
-                        clipped = max(clipped.geoms, key=lambda p: p.area)
-                    polygons.append((point_idx, clipped))
+                            
+            except Exception as e:
+                # Log but don't fail - continue processing other points
+                print(f"Warning: Could not process Voronoi region for point {point_idx}: {e}")
+                continue
         
         return polygons
+    
+    def _make_valid_polygon(self, vertices: np.ndarray) -> Optional[Polygon]:
+        """Create a valid polygon from vertices, handling edge cases."""
+        if len(vertices) < 3:
+            return None
+        try:
+            poly = Polygon(vertices)
+            if not poly.is_valid:
+                # Try to fix with buffer(0)
+                poly = poly.buffer(0)
+            if poly.is_valid and not poly.is_empty and poly.area > 0:
+                return poly
+        except Exception:
+            pass
+        return None
+    
+    def _clip_polygon(self, poly: Polygon, bounding_box: Polygon) -> Optional[Polygon]:
+        """Clip a polygon to the bounding box, returning the largest piece."""
+        try:
+            clipped = poly.intersection(bounding_box)
+            if clipped.is_empty or clipped.area <= 0:
+                return None
+            if isinstance(clipped, MultiPolygon):
+                clipped = max(clipped.geoms, key=lambda p: p.area)
+            if isinstance(clipped, Polygon) and clipped.area > 0:
+                return clipped
+        except Exception:
+            pass
+        return None
     
     def compute_voronoi(
         self,
