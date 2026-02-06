@@ -3,11 +3,12 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { chatApi, uploadApi, type ChatMessage } from '@/lib/api';
+import { chatApi, uploadApi, type ChatMessage, type Facility } from '@/lib/api';
 
 interface ChatPanelProps {
     isOpen: boolean;
     onClose: () => void;
+    onDataLoad?: (facilities: Facility[], filename: string) => void;
 }
 
 const API_KEY_STORAGE_KEY = 'tessera_ai_api_key';
@@ -15,7 +16,7 @@ const PROVIDER_STORAGE_KEY = 'tessera_ai_provider';
 
 type AIProvider = 'openai' | 'gemini';
 
-export default function ChatPanel({ isOpen, onClose }: ChatPanelProps) {
+export default function ChatPanel({ isOpen, onClose, onDataLoad }: ChatPanelProps) {
     const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [input, setInput] = useState('');
     const [sessionId, setSessionId] = useState<string | null>(null);
@@ -191,6 +192,14 @@ export default function ChatPanel({ isOpen, onClose }: ChatPanelProps) {
             };
 
             setMessages(prev => [...prev, assistantMessage]);
+
+            // Handle incoming data (e.g., from transform_dataset)
+            if (response.data?.type === 'standardized_dataset' && response.data.facilities) {
+                console.log('Received standardized dataset from chat:', response.data.facilities.length);
+                if (onDataLoad) {
+                    onDataLoad(response.data.facilities, 'Chat Augmentation');
+                }
+            }
         } catch (err) {
             const errorMessage = err instanceof Error ? err.message : 'Failed to send message';
             setError(errorMessage);

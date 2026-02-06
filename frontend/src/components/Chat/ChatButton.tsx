@@ -1,9 +1,14 @@
 "use client";
 
 import { useState } from "react";
+import { type Facility } from "@/lib/api";
 import ChatPanel from "./ChatPanel";
 
-export default function ChatButton() {
+interface ChatButtonProps {
+  onDataLoad?: (facilities: Facility[], filename: string) => void;
+}
+
+export default function ChatButton({ onDataLoad }: ChatButtonProps) {
   const [isOpen, setIsOpen] = useState(true);
 
   return (
@@ -32,7 +37,11 @@ export default function ChatButton() {
       )}
 
       {/* Chat Panel */}
-      <ChatPanel isOpen={isOpen} onClose={() => setIsOpen(false)} />
+      <ChatPanel
+        isOpen={isOpen}
+        onClose={() => setIsOpen(false)}
+        onDataLoad={onDataLoad}
+      />
     </>
   );
 }

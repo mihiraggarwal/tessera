@@ -765,7 +765,7 @@ export default function Home() {
       </main>
 
       {/* Floating Chat Button */}
-      <ChatButton />
+      <ChatButton onDataLoad={handleUploadSuccess} />
     </div>
   );
 }

@@ -242,6 +242,10 @@ export interface ChatMessageResponse {
     response: string;
     session_id: string;
     timestamp: string;
+    data?: {
+        type: string;
+        facilities: Facility[];
+    } | null;
 }
 
 export interface ConversationHistoryResponse {

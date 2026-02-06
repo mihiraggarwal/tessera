@@ -10,9 +10,10 @@ import pandas as pd
 
 router = APIRouter()
 
-# Path to data folder (from backend/app/routers/ -> tessera/data/)
+# Path to data folder 
 DATA_DIR = Path(__file__).parent.parent.parent.parent / "data"
-RAW_DATA_DIR = DATA_DIR / "raw"
+# PRIVATE: Temp folder for files mid-augmentation (not for permanent storage)
+RAW_DATA_DIR = Path(__file__).parent.parent / "temp"
 
 
 class FacilityData(BaseModel):

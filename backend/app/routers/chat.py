@@ -28,6 +28,7 @@ class ChatMessageResponse(BaseModel):
     response: str
     session_id: str
     timestamp: str
+    data: Optional[dict] = None  # Optional structured data (e.g., facilities)
 
 
 class ConversationHistoryResponse(BaseModel):
@@ -60,7 +61,7 @@ async def send_message(request: ChatMessageRequest):
         )
     
     try:
-        response = await process_chat_message(
+        result = await process_chat_message(
             session_id=request.session_id,
             message=request.message,
             api_key=request.api_key,
@@ -68,9 +69,10 @@ async def send_message(request: ChatMessageRequest):
         )
         
         return ChatMessageResponse(
-            response=response,
+            response=result["response"],
             session_id=request.session_id,
-            timestamp=datetime.now().isoformat()
+            timestamp=datetime.now().isoformat(),
+            data=result["data"]
         )
         
     except Exception as e:

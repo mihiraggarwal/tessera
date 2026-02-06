@@ -300,7 +300,7 @@ def transform_dataset(file_path: str, name_col: str, lat_col: str, lng_col: str,
         type_col: Optional column for facility type (will be auto-normalized to Title Case)
         state_col: Optional column for state name
         district_col: Optional column for district name
-        output_filename: Name for the resulting standard CSV
+        output_filename: Name for the resulting standard CSV (deprecated, data is returned directly)
     """
     print(f"[TOOL DEBUG] transform_dataset called for: {file_path}")
     mapping = {
@@ -314,12 +314,12 @@ def transform_dataset(file_path: str, name_col: str, lat_col: str, lng_col: str,
     
     service = AugmentationService()
     try:
-        output_path = service.transform_csv(Path(file_path), mapping, output_filename)
+        facilities = service.transform_csv(Path(file_path), mapping)
         return {
             "success": True, 
-            "message": f"Successfully transformed dataset. Saved to {output_path.name}",
-            "filename": output_path.name,
-            "instructions": "The user can now load this dataset by selecting it from the 'Load Saved Dataset' dropdown in the sidebar. If it doesn't appear, they should click the 'Refresh' icon."
+            "message": f"Successfully transformed dataset. Returning {len(facilities)} facilities to the analysis engine.",
+            "facilities": facilities,
+            "instructions": "The dataset is now processed and active in memory. Explain to the user that their data has been standardized and is ready for use, but it has NOT been saved to the server's permanent storage for security."
         }
     except Exception as e:
         return {"success": False, "error": str(e)}
@@ -367,7 +367,7 @@ If a user mentions an uploaded file or drops a file into the chat:
    - **Polluted Values**: It handles hidden units (e.g., '28.5 N') and brackets automatically.
    - **Normalization**: Categories and names are auto-trimmed and normalized to Title Case.
 3. Once the user confirms mapping, use transform_dataset(...) to convert it.
-4. Inform the user they can load the data from the 'Load Saved Dataset' dropdown and use the 'Refresh' button if it doesn't appear.
+4. Inform the user that their data has been processed and is active in memory for this session. For privacy, it is NOT saved permanently on the server.
 
 ## AVAILABLE IN CODE
 - dcel: DCEL object with all facility faces
@@ -541,7 +541,8 @@ async def process_chat_message(
             tools=tools, 
             verbose=True,
             max_iterations=10,
-            handle_parsing_errors=True
+            handle_parsing_errors=True,
+            return_intermediate_steps=True
         )
 
         print(f"[CHAT DEBUG] Processing message: {message[:100]}...")
@@ -553,7 +554,19 @@ async def process_chat_message(
         })
         
         response = result.get("output", "I couldn't process that request.")
+        intermediate_steps = result.get("intermediate_steps", [])
         
+        # Extract facilities from transform_dataset tool output if present
+        facility_data = None
+        for action, observation in intermediate_steps:
+            if action.tool == "transform_dataset" and isinstance(observation, dict):
+                if observation.get("success") and "facilities" in observation:
+                    facility_data = {
+                        "type": "standardized_dataset",
+                        "facilities": observation["facilities"]
+                    }
+                    print(f"[CHAT DEBUG] Captured {len(observation['facilities'])} facilities from tool output")
+
         # Handle case where response is a list
         if isinstance(response, list):
             text_parts = []
@@ -569,10 +582,16 @@ async def process_chat_message(
         # Add assistant response to history
         add_to_conversation(session_id, "assistant", response)
         
-        return response
+        return {
+            "response": response,
+            "data": facility_data
+        }
         
     except Exception as e:
         print(f"[CHAT DEBUG] ERROR: {str(e)}")
         error_msg = f"Error processing request: {str(e)}"
         add_to_conversation(session_id, "assistant", error_msg)
-        return error_msg
+        return {
+            "response": error_msg,
+            "data": None
+        }

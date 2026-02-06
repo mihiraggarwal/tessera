@@ -9,6 +9,7 @@ todo.*
 **/data/raw/
 **/data/public/
 backend/app/cache/
+backend/app/temp/
 *.pyc
 **/data/*.csv
 **/data/*.json

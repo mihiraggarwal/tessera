@@ -140,10 +140,11 @@ class AugmentationService:
         return None
 
     @staticmethod
-    def transform_csv(input_path: Path, mapping: Dict[str, str], output_name: str) -> Path:
+    def transform_csv(input_path: Path, mapping: Dict[str, str]) -> List[Dict[str, Any]]:
         """
-        Transform a raw CSV into the standard format used by Tessera.
+        Transform a raw CSV into a list of facility dictionaries.
         Handles splitting, cleaning, and normalization.
+        Cleans up the input file after processing.
         """
         # 1. Detect best separator
         seps = [',', '\t', ';']
@@ -240,11 +241,14 @@ class AugmentationService:
         # Drop rows with invalid coordinates
         df_final = df_final.dropna(subset=['lat', 'lng'])
         
-        # Save to processed data folder
-        output_dir = input_path.parent.parent
-        output_path = output_dir / output_name
-        if not output_name.endswith('.csv'):
-            output_path = output_path.with_suffix('.csv')
+        # Prepare final list of facilities
+        facilities = df_final.to_dict(orient='records')
+        
+        # Cleanup: Delete the temporary input file
+        try:
+            if input_path.exists():
+                input_path.unlink()
+        except Exception as e:
+            print(f"Warning: Failed to cleanup temp file {input_path}: {e}")
             
-        df_final.to_csv(output_path, index=False)
-        return output_path
+        return facilities
