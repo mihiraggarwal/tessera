@@ -56,8 +56,8 @@ async def compute_voronoi(request: VoronoiRequest):
         facility_ids = [f.id or str(i) for i, f in enumerate(request.facilities)]
         types = [f.type for f in request.facilities]
         
-        # Compute Voronoi
-        geojson = engine.compute_voronoi(
+        # Compute Voronoi and build DCEL for spatial queries
+        geojson, dcel = engine.compute_voronoi_with_dcel(
             coords=coords,
             names=names,
             facility_ids=facility_ids,
@@ -128,7 +128,7 @@ async def get_facility_insights(request: VoronoiRequest):
         facility_ids = [f.id or str(i) for i, f in enumerate(request.facilities)]
         types = [f.type for f in request.facilities]
         
-        geojson = engine.compute_voronoi(
+        geojson, dcel = engine.compute_voronoi_with_dcel(
             coords=coords,
             names=names,
             facility_ids=facility_ids,

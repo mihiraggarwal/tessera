@@ -385,3 +385,36 @@ class VoronoiEngine:
             "type": "FeatureCollection",
             "features": features
         }
+    
+    def compute_voronoi_with_dcel(
+        self,
+        coords: List[Tuple[float, float]],
+        names: List[str],
+        facility_ids: List[str],
+        types: Optional[List[str]] = None,
+        clip_to_india: bool = True,
+        state_filter: Optional[str] = None
+    ) -> Tuple[Dict[str, Any], 'DCEL']:
+        """
+        Compute Voronoi diagram and build DCEL index.
+        
+        Returns:
+            Tuple of (GeoJSON FeatureCollection, DCEL instance)
+        """
+        from app.services.dcel import DCEL, set_current_dcel
+        
+        geojson = self.compute_voronoi(
+            coords=coords,
+            names=names,
+            facility_ids=facility_ids,
+            types=types,
+            clip_to_india=clip_to_india,
+            state_filter=state_filter
+        )
+        
+        dcel = DCEL()
+        dcel.build_from_voronoi(geojson)
+        set_current_dcel(dcel)
+        
+        return geojson, dcel
+

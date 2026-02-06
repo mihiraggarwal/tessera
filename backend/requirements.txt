@@ -11,9 +11,20 @@ pyproj>=3.6.0
 numpy>=1.26.0
 pandas>=2.1.0
 
+# AI / LLM Integration
+langchain>=0.3.0
+langchain-openai>=0.2.0
+langchain-classic>=1.0.1
+langchain-core>=1.2.9
+langchain-google-genai>=2.0.0
+openai>=1.50.0
+httpx>=0.27.0
+RestrictedPython>=6.0
+
 # Utilities
 geopy>=2.4.0
 python-dotenv>=1.0.0
 
-# CORS
+# CORS / Validation
 pydantic>=2.5.0
+

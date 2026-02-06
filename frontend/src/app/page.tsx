@@ -4,6 +4,7 @@ import { useState, useCallback, useEffect, useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import FileUpload from '@/components/FileUpload';
 import AreaAnalysis from '@/components/AreaAnalysis';
+import { ChatButton } from '@/components/Chat';
 import { voronoiApi, populationApi, boundariesApi, type Facility, type GeoJSONFeatureCollection, type GeoJSONFeature, type FacilityInsights } from '@/lib/api';
 import { exportToPNG2, exportToGeoJSON } from '@/lib/export';
 import * as turf from '@turf/turf';
@@ -767,10 +768,13 @@ export default function Home() {
 
 
 
-
           </div>
         </div>
       </main>
+
+      {/* Floating Chat Button */}
+      <ChatButton />
     </div>
   );
 }
+
