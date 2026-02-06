@@ -17,12 +17,15 @@ All notable changes to Tessera will be documented in this file.
 - `compute_voronoi_with_dcel()` method in VoronoiEngine for automatic DCEL building
 
 **Phase 2: AI Chatbot Core**
-- LangChain integration with OpenAI GPT-4 function calling
-- `chat_service.py` with tool wrappers for spatial query endpoints
-- `/api/chat/message` - Send message to AI assistant
-- `/api/chat/history/{session_id}` - Get conversation history
-- `/api/chat/clear/{session_id}` - Clear conversation
-- `/api/chat/new` - Start new conversation session
+- LangChain integration with multi-provider support: OpenAI (GPT-4) and Google Gemini (2.5 Flash)
+- `chat_service.py` refactored to call DCEL service functions directly, eliminating self-referential HTTP deadlocks
+- Tool payload optimization (pruning large geometry/property fields) to prevent LLM timeouts
+- Markdown rendering support in Chat UI using `react-markdown` and `remark-gfm`
+- Comprehensive unit test suite for DCEL endpoints (`backend/tests/test_dcel_full.py`)
+- /api/chat/message - Send message to AI assistant
+- /api/chat/history/{session_id} - Get conversation history
+- /api/chat/clear/{session_id} - Clear conversation
+- /api/chat/new} - Start new conversation session
 - In-memory conversation storage with session management
 - System prompt optimized for policymakers and urban planners
 

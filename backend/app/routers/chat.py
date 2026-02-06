@@ -19,7 +19,8 @@ class ChatMessageRequest(BaseModel):
     """Request to send a chat message."""
     session_id: str
     message: str
-    api_key: str  # User's OpenAI API key
+    api_key: str  # User's AI provider API key
+    provider: str = "openai"  # AI provider: 'openai' or 'gemini'
 
 
 class ChatMessageResponse(BaseModel):
@@ -43,11 +44,13 @@ async def send_message(request: ChatMessageRequest):
     
     The assistant can query spatial data about facilities and their
     service areas using the current Voronoi diagram.
+    
+    Supports OpenAI (GPT-4) and Google Gemini providers.
     """
     if not request.api_key:
         raise HTTPException(
             status_code=400,
-            detail="OpenAI API key is required"
+            detail="API key is required"
         )
     
     if not request.message.strip():
@@ -60,7 +63,8 @@ async def send_message(request: ChatMessageRequest):
         response = await process_chat_message(
             session_id=request.session_id,
             message=request.message,
-            api_key=request.api_key
+            api_key=request.api_key,
+            provider=request.provider
         )
         
         return ChatMessageResponse(

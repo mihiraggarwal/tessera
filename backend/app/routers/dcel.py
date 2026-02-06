@@ -36,7 +36,7 @@ class RangeQueryRequest(BaseModel):
 
 class TopFacilitiesRequest(BaseModel):
     """Request for top facilities by population."""
-    top_n: int = Field(default=10, ge=1, le=100)
+    top_n: float = Field(default=10, ge=1, le=100)  # Accept float, convert to int
     state: Optional[str] = None
 
 
@@ -117,7 +117,7 @@ async def get_top_by_population(request: TopFacilitiesRequest):
         )
     
     facilities = dcel.get_facilities_by_population(
-        top_n=request.top_n,
+        top_n=int(request.top_n),
         state=request.state
     )
     
