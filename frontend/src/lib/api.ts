@@ -213,4 +213,96 @@ export const healthApi = {
     },
 };
 
+// Area Rating API Types
+export interface PincodeInfo {
+    pincode: string;
+    place_name: string;
+    state: string;
+    district: string;
+    lat: number;
+    lng: number;
+}
+
+export interface FacilityBreakdown {
+    score: number;
+    distance_km: number | null;
+    facility_name: string | null;
+    weight: number;
+}
+
+export interface NearestFacility {
+    type: string;
+    name: string | null;
+    distance_km: number;
+    lat: number | null;
+    lng: number | null;
+}
+
+export interface AreaRatingResponse {
+    overall_score: number;
+    grade: 'A' | 'B' | 'C' | 'D' | 'F';
+    analysis_type: string;
+    location: { lat: number; lng: number };
+    breakdown: Record<string, FacilityBreakdown>;
+    nearest_facilities: NearestFacility[];
+    recommendations: Array<{
+        type: string;
+        priority: 'HIGH' | 'MEDIUM' | 'LOW';
+        message: string;
+    }>;
+    pincode_info?: PincodeInfo;
+}
+
+export interface AnalysisType {
+    id: string;
+    name: string;
+    description: string;
+    datasets: string[];
+}
+
+export const areaRatingApi = {
+    analyzeByPincode: async (pincode: string, analysisType: 'emergency' | 'living'): Promise<AreaRatingResponse> => {
+        const response = await api.post('/api/rating/analyze', {
+            pincode,
+            analysis_type: analysisType,
+        });
+        return response.data;
+    },
+
+    analyzeByLocation: async (lat: number, lng: number, analysisType: 'emergency' | 'living'): Promise<AreaRatingResponse> => {
+        const response = await api.post('/api/rating/analyze-location', {
+            lat,
+            lng,
+            analysis_type: analysisType,
+        });
+        return response.data;
+    },
+
+    getPincodeInfo: async (pincode: string): Promise<PincodeInfo> => {
+        const response = await api.get(`/api/rating/pincode/${pincode}`);
+        return response.data;
+    },
+
+    searchPincodes: async (query: string, limit: number = 10): Promise<{ results: PincodeInfo[] }> => {
+        const response = await api.get(`/api/rating/pincode/search/${query}?limit=${limit}`);
+        return response.data;
+    },
+
+    reverseGeocode: async (lat: number, lng: number): Promise<PincodeInfo> => {
+        const response = await api.post('/api/rating/reverse-geocode', { lat, lng });
+        return response.data;
+    },
+
+    getDatasets: async (analysisType: 'emergency' | 'living'): Promise<{ analysis_type: string; datasets: string[] }> => {
+        const response = await api.get(`/api/rating/datasets/${analysisType}`);
+        return response.data;
+    },
+
+    getAnalysisTypes: async (): Promise<{ types: AnalysisType[] }> => {
+        const response = await api.get('/api/rating/analysis-types');
+        return response.data;
+    },
+};
+
 export default api;
+

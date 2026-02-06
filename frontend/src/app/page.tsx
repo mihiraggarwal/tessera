@@ -3,6 +3,7 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import FileUpload from '@/components/FileUpload';
+import AreaAnalysis from '@/components/AreaAnalysis';
 import { voronoiApi, populationApi, boundariesApi, type Facility, type GeoJSONFeatureCollection, type GeoJSONFeature, type FacilityInsights } from '@/lib/api';
 import { exportToPNG2, exportToGeoJSON } from '@/lib/export';
 import * as turf from '@turf/turf';
@@ -518,6 +519,13 @@ export default function Home() {
                 </div>
               </div>
             )}
+
+            {/* Area Analysis Card */}
+            <AreaAnalysis
+              onLocationSelect={(lat, lng) => {
+                setMapCenter({ lat, lng, zoom: 12 });
+              }}
+            />
           </div>
 
           {/* Map + Legend Row */}
