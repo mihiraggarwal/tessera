@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001';
 
 const api = axios.create({
     baseURL: API_BASE_URL,
@@ -171,6 +171,17 @@ export const uploadApi = {
         const response = await api.get(`/api/upload/bus-stops/${encodeURIComponent(stateName)}`);
         return response.data;
     },
+    uploadRawCSV: async (file: File): Promise<{ success: boolean; filename: string; path: string }> => {
+        const formData = new FormData();
+        formData.append('file', file);
+
+        const response = await api.post('/api/upload/raw-csv', formData, {
+            headers: {
+                'Content-Type': 'multipart/form-data',
+            },
+        });
+        return response.data;
+    },
 };
 
 export const boundariesApi = {
@@ -322,6 +333,10 @@ export interface ChatMessageResponse {
     response: string;
     session_id: string;
     timestamp: string;
+    data?: {
+        type: string;
+        facilities: Facility[];
+    } | null;
 }
 
 export interface ConversationHistoryResponse {

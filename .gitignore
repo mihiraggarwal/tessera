@@ -3,3 +3,10 @@
 India Shape
 *.env
 todo.*
+.agent
+
+# Data
+**/data/raw/
+backend/app/cache/
+backend/app/temp/
+*.pyc

@@ -20,6 +20,8 @@ from langchain_core.messages import HumanMessage, AIMessage
 from app.services.dcel import get_current_dcel
 from app.services.python_executor import get_executor
 from app.services.helper_functions import create_helper_functions
+from app.services.augmentation_service import AugmentationService
+from pathlib import Path
 
 
 # In-memory conversation storage
@@ -269,6 +271,60 @@ def inspect_sample(state: str = None, limit: int = 3) -> dict:
     return result
 
 
+@tool
+def analyze_dataset(file_path: str) -> dict:
+    """
+    Analyze a raw CSV dataset to see its columns and sample data.
+    Use this when a user uploads a new dataset to understand its schema.
+    
+    Args:
+        file_path: Absolute path to the raw CSV file
+    """
+    print(f"[TOOL DEBUG] analyze_dataset called for: {file_path}")
+    service = AugmentationService()
+    return service.analyze_csv(Path(file_path))
+
+
+@tool
+def transform_dataset(file_path: str, name_col: str, lat_col: str, lng_col: str, 
+                      type_col: str = None, state_col: str = None, district_col: str = None,
+                      output_filename: str = "transformed_data.csv") -> dict:
+    """
+    Transform a raw dataset into Tessera's standard format.
+    
+    Args:
+        file_path: Absolute path to the raw CSV file
+        name_col: Name of the column containing facility names
+        lat_col: Name of the column containing latitude (can be same as lng_col for combined 'lat,lng' columns)
+        lng_col: Name of the column containing longitude (can be same as lat_col for combined 'lat,lng' columns)
+        type_col: Optional column for facility type (will be auto-normalized to Title Case)
+        state_col: Optional column for state name
+        district_col: Optional column for district name
+        output_filename: Name for the resulting standard CSV (deprecated, data is returned directly)
+    """
+    print(f"[TOOL DEBUG] transform_dataset called for: {file_path}")
+    mapping = {
+        "name": name_col,
+        "lat": lat_col,
+        "lng": lng_col
+    }
+    if type_col: mapping["type"] = type_col
+    if state_col: mapping["state"] = state_col
+    if district_col: mapping["district"] = district_col
+    
+    service = AugmentationService()
+    try:
+        facilities = service.transform_csv(Path(file_path), mapping)
+        return {
+            "success": True, 
+            "message": f"Successfully transformed dataset. Returning {len(facilities)} facilities to the analysis engine.",
+            "facilities": facilities,
+            "instructions": "The dataset is now processed and active in memory. Explain to the user that their data has been standardized and is ready for use, but it has NOT been saved to the server's permanent storage for security."
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
 # =============================================================================
 # SYSTEM PROMPT
 # =============================================================================
@@ -302,6 +358,16 @@ You can execute Python code against a DCEL containing """ + str(total_facilities
 Each facility in dcel.faces has:
 - facility_id, facility_name: Identifiers
 - properties: Dict with state, district, population, area_sq_km, centroid_lat, centroid_lng
+
+## DATA AUGMENTATION (Universal Pre-processor)
+If a user mentions an uploaded file or drops a file into the chat:
+1. Use analyze_dataset(file_path) to see the columns and patterns.
+2. The pre-processor handles messy data automatically:
+   - **Combined Columns**: If Lat/Lng are in one column (e.g., 'Coordinates'), map that same column to both 'lat_col' and 'lng_col'.
+   - **Polluted Values**: It handles hidden units (e.g., '28.5 N') and brackets automatically.
+   - **Normalization**: Categories and names are auto-trimmed and normalized to Title Case.
+3. Once the user confirms mapping, use transform_dataset(...) to convert it.
+4. Inform the user that their data has been processed and is active in memory for this session. For privacy, it is NOT saved permanently on the server.
 
 ## AVAILABLE IN CODE
 - dcel: DCEL object with all facility faces
@@ -379,7 +445,9 @@ def create_chat_agent(api_key: str, provider: str = "openai") -> AgentExecutor:
         execute_python,
         get_available_values,
         fuzzy_search,
-        inspect_sample
+        inspect_sample,
+        analyze_dataset,
+        transform_dataset
     ]
     
     prompt = ChatPromptTemplate.from_messages([
@@ -455,7 +523,9 @@ async def process_chat_message(
             execute_python,
             get_available_values,
             fuzzy_search,
-            inspect_sample
+            inspect_sample,
+            analyze_dataset,
+            transform_dataset
         ]
         
         prompt = ChatPromptTemplate.from_messages([
@@ -471,7 +541,8 @@ async def process_chat_message(
             tools=tools, 
             verbose=True,
             max_iterations=10,
-            handle_parsing_errors=True
+            handle_parsing_errors=True,
+            return_intermediate_steps=True
         )
 
         print(f"[CHAT DEBUG] Processing message: {message[:100]}...")
@@ -483,7 +554,19 @@ async def process_chat_message(
         })
         
         response = result.get("output", "I couldn't process that request.")
+        intermediate_steps = result.get("intermediate_steps", [])
         
+        # Extract facilities from transform_dataset tool output if present
+        facility_data = None
+        for action, observation in intermediate_steps:
+            if action.tool == "transform_dataset" and isinstance(observation, dict):
+                if observation.get("success") and "facilities" in observation:
+                    facility_data = {
+                        "type": "standardized_dataset",
+                        "facilities": observation["facilities"]
+                    }
+                    print(f"[CHAT DEBUG] Captured {len(observation['facilities'])} facilities from tool output")
+
         # Handle case where response is a list
         if isinstance(response, list):
             text_parts = []
@@ -499,10 +582,16 @@ async def process_chat_message(
         # Add assistant response to history
         add_to_conversation(session_id, "assistant", response)
         
-        return response
+        return {
+            "response": response,
+            "data": facility_data
+        }
         
     except Exception as e:
         print(f"[CHAT DEBUG] ERROR: {str(e)}")
         error_msg = f"Error processing request: {str(e)}"
         add_to_conversation(session_id, "assistant", error_msg)
-        return error_msg
+        return {
+            "response": error_msg,
+            "data": None
+        }

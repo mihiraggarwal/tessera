@@ -5,12 +5,17 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.routers import voronoi, upload, boundaries, population, dcel, chat, area_rating
+from pathlib import Path
 
 app = FastAPI(
     title="Voronoi Population Mapping API",
     description="Compute Voronoi diagrams for facilities and weighted population estimates",
     version="0.2.0",
 )
+
+# Ensure data directories exist
+DATA_DIR = Path(__file__).parent.parent / "data"
+(DATA_DIR / "raw").mkdir(parents=True, exist_ok=True)
 
 # CORS middleware for frontend communication
 app.add_middleware(
