@@ -402,16 +402,16 @@ export default function ChatPanel({
             </svg>
           </div>
           <div>
-            <h2 className="font-bold">Tessera Assistant</h2>
+            <h2 className="font-bold text-gray-800">Tessera Assistant</h2>
             <div className="flex items-center gap-1.5">
               <span className="w-1.5 h-1.5 bg-green-400 rounded-full animate-pulse" />
-              <span className="text-[10px] text-indigo-100 font-medium uppercase tracking-wider">
+              <span className="text-[10px] text-gray-800 font-medium uppercase tracking-wider">
                 AI Powered
               </span>
             </div>
           </div>
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1 text-gray-800">
           <button
             onClick={handleNewChat}
             className="p-1.5 hover:bg-white/10 rounded-lg transition-colors"
@@ -824,7 +824,7 @@ export default function ChatPanel({
       </div>
 
       {/* Input */}
-      <div className="p-4 border-t border-gray-200 bg-gray-50">
+      <div className="p-4 border-t border-gray-200 bg-gray-50 text-gray-800">
         <div className="flex gap-2">
           <input
             ref={inputRef}
