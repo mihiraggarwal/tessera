@@ -170,6 +170,65 @@ export interface RoutingConfigRequest {
   timeout_seconds: number;
 }
 
+// Point Analysis Types (Hybrid Mode)
+export interface FacilityInfo {
+  facility_id: string;
+  facility_name: string;
+  distance_km: number;
+  duration_min?: number | null;
+  lat?: number | null;
+  lng?: number | null;
+}
+
+export interface CandidateInfo {
+  facility_id: string;
+  facility_name: string;
+  euclidean_rank: number;
+  route_rank: number;
+  euclidean_distance_km: number;
+  route_distance_km: number;
+  route_duration_min: number;
+  route_connected: boolean;
+}
+
+export interface PointAnalysisRequest {
+  lat: number;
+  lng: number;
+  k_candidates?: number;
+}
+
+export interface PointAnalysisResponse {
+  location: [number, number];
+  euclidean_nearest: FacilityInfo;
+  route_nearest: FacilityInfo;
+  distortion_ratio: number;
+  differs: boolean;
+  all_candidates: CandidateInfo[];
+  routing_available: boolean;
+}
+
+// Routing API (Point Analysis)
+export const routingApi = {
+  analyzePoint: async (
+    request: PointAnalysisRequest,
+  ): Promise<PointAnalysisResponse> => {
+    const response = await api.post("/api/routing/analyze-point", request);
+    return response.data;
+  },
+
+  getHealth: async (): Promise<RoutingHealthResponse> => {
+    const response = await api.get("/api/routing/health");
+    return response.data;
+  },
+
+  updateConfig: async (
+    config: RoutingConfigRequest,
+  ): Promise<{ status: string; health: RoutingHealthResponse }> => {
+    const response = await api.post("/api/routing/config", config);
+    return response.data;
+  },
+};
+
 export const voronoiApi = {
   compute: async (
     request: VoronoiRequest,

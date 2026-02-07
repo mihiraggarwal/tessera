@@ -5,6 +5,7 @@ import dynamic from "next/dynamic";
 import FileUpload from "@/components/FileUpload";
 import AreaAnalysis from "@/components/AreaAnalysis";
 import { ChatButton } from "@/components/Chat";
+import PointAnalysisPanel from "@/components/PointAnalysisPanel";
 import {
   voronoiApi,
   populationApi,
@@ -76,6 +77,12 @@ export default function Home() {
   const [routingHealth, setRoutingHealth] =
     useState<RoutingHealthResponse | null>(null);
   const [isCheckingRouting, setIsCheckingRouting] = useState(false);
+
+  // Point Analysis state (hybrid mode)
+  const [pointAnalysisLocation, setPointAnalysisLocation] = useState<{
+    lat: number;
+    lng: number;
+  } | null>(null);
 
   // Fetch states list and India boundary on mount
   useEffect(() => {
@@ -363,6 +370,17 @@ export default function Home() {
       }
     },
     [editMode, facilities],
+  );
+
+  // Handle map double-click for route analysis
+  const handleMapDoubleClick = useCallback(
+    (lat: number, lng: number) => {
+      // Only trigger route analysis if we have Voronoi data and not in edit mode
+      if (!editMode && voronoiData && facilities.length > 0) {
+        setPointAnalysisLocation({ lat, lng });
+      }
+    },
+    [editMode, voronoiData, facilities.length],
   );
 
   const handleExportPNG = useCallback(async () => {
@@ -813,6 +831,7 @@ export default function Home() {
                   showDistricts={boundaryLevel !== "none"}
                   flyTo={mapCenter}
                   onMapClick={handleMapClick}
+                  onMapDoubleClick={handleMapDoubleClick}
                   editMode={editMode}
                   showEnclosingCircles={showEnclosingCircles}
                   enclosingCircles={
@@ -1169,6 +1188,15 @@ export default function Home() {
 
       {/* Floating Chat Button */}
       <ChatButton onDataLoad={handleUploadSuccess} />
+
+      {/* Point Analysis Panel (appears when clicking on map) */}
+      {pointAnalysisLocation && (
+        <PointAnalysisPanel
+          lat={pointAnalysisLocation.lat}
+          lng={pointAnalysisLocation.lng}
+          onClose={() => setPointAnalysisLocation(null)}
+        />
+      )}
     </div>
   );
 }
