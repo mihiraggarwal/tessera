@@ -38,6 +38,8 @@ interface MapProps {
     };
     showEnclosingCircles?: boolean;
     editMode?: 'add' | 'remove' | null;
+    heatmapData?: Array<{ lat: number; lng: number; weight: number }>;
+    heatmapType?: 'emergency' | 'living' | null;
 }
 
 // Population coloring (Yellow -> Red)
@@ -74,6 +76,8 @@ export default function MapComponent({
     enclosingCircles,
     showEnclosingCircles = false,
     editMode = null,
+    heatmapData = [],
+    heatmapType = null,
 }: MapProps) {
     const mapRef = useRef<L.Map | null>(null);
     const mapContainerRef = useRef<HTMLDivElement>(null);
@@ -81,6 +85,7 @@ export default function MapComponent({
     const voronoiLayerRef = useRef<L.LayerGroup | null>(null);
     const districtsLayerRef = useRef<L.LayerGroup | null>(null);
     const enclosingCirclesLayerRef = useRef<L.LayerGroup | null>(null);
+    const heatmapLayerRef = useRef<any>(null);
 
     // Initialize map
     useEffect(() => {
@@ -99,6 +104,11 @@ export default function MapComponent({
         voronoiLayerRef.current = L.layerGroup().addTo(map);    // Middle layer
         markersLayerRef.current = L.layerGroup().addTo(map);    // Facility markers
         enclosingCirclesLayerRef.current = L.layerGroup().addTo(map); // Top layer for circles
+
+        // Heatmap layer requires heatmap.js and its leaflet plugin
+        // For simplicity, we'll use a local implementation or dynamically load it
+        // But since we can't easily add external scripts here, we'll use CircleMarkers with low opacity as a "heatmap"
+        heatmapLayerRef.current = L.layerGroup().addTo(map);
 
         mapRef.current = map;
 
@@ -299,6 +309,56 @@ export default function MapComponent({
             }
         }
     }, [showEnclosingCircles, enclosingCircles]);
+
+    // Update heatmap layer
+    useEffect(() => {
+        if (!heatmapLayerRef.current) return;
+
+        heatmapLayerRef.current.clearLayers();
+
+        if (heatmapData && heatmapData.length > 0) {
+            heatmapData.forEach((point) => {
+                // Determine color based on weight (0-1) and type
+                let color = '#FED976'; // Default
+                let opacityWeight = point.weight;
+
+                if (heatmapType === 'emergency') {
+                    // For emergency, 'weight' is the Score (Coverage). 
+                    // Risk is the inverse: High Score = Low Risk, Low Score = Critical Risk.
+                    const risk = 1.0 - point.weight;
+                    // User requested lesser risky (higher score) to be more opaque
+                    opacityWeight = point.weight;
+
+                    // Reds palette for risk
+                    color = risk > 0.8 ? '#800026' : // Critical (Dark Red)
+                        risk > 0.6 ? '#BD0026' : // High
+                            risk > 0.4 ? '#E31A1C' : // Moderate
+                                risk > 0.2 ? '#FC4E2A' : '#FED976'; // Low (Yellow)
+                } else if (heatmapType === 'living') {
+                    // For living, 'weight' is the Score (Quality).
+                    // High Score = Excellent Quality (Dark Green).
+                    opacityWeight = point.weight;
+
+                    // Greens palette for quality
+                    color = point.weight > 0.8 ? '#006837' : // Excellent (Dark Green)
+                        point.weight > 0.6 ? '#31a354' : // Good
+                            point.weight > 0.4 ? '#78c679' : // Fair
+                                point.weight > 0.2 ? '#c2e699' : '#ffffcc'; // Basic
+                }
+
+                const circle = L.circleMarker([point.lat, point.lng], {
+                    radius: 5, // Keeping user's preferred small size
+                    fillColor: color,
+                    color: color,
+                    weight: 1,
+                    opacity: 0.2, // Slightly more visible stroke for small dots
+                    fillOpacity: 0.2 + (opacityWeight * 0.6), // Base opacity so high risk is visible
+                    interactive: false
+                });
+                circle.addTo(heatmapLayerRef.current!);
+            });
+        }
+    }, [heatmapData, heatmapType]);
 
     // Update cursor style based on edit mode
     useEffect(() => {

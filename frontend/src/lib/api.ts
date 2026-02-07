@@ -313,6 +313,10 @@ export const areaRatingApi = {
         const response = await api.get('/api/rating/analysis-types');
         return response.data;
     },
+    getHeatmapData: async (analysisType: 'emergency' | 'living'): Promise<Array<{ lat: number; lng: number; weight: number }>> => {
+        const response = await api.get(`/api/rating/heatmap/${analysisType}`);
+        return response.data;
+    },
 };
 
 // Chat API for AI assistant
@@ -320,6 +324,9 @@ export interface ChatMessage {
     role: 'user' | 'assistant';
     content: string;
     timestamp: string;
+    tools_used?: string[];
+    tool_calls?: Array<{ tool: string; input: any }>;
+    data?: any;
 }
 
 export interface ChatMessageRequest {
@@ -337,6 +344,8 @@ export interface ChatMessageResponse {
         type: string;
         facilities: Facility[];
     } | null;
+    tools_used?: string[];
+    tool_calls?: Array<{ tool: string; input: any }>;
 }
 
 export interface ConversationHistoryResponse {
@@ -375,4 +384,3 @@ export const chatApi = {
 };
 
 export default api;
-

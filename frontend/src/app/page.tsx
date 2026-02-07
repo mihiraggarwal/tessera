@@ -5,7 +5,7 @@ import dynamic from 'next/dynamic';
 import FileUpload from '@/components/FileUpload';
 import AreaAnalysis from '@/components/AreaAnalysis';
 import { ChatButton } from '@/components/Chat';
-import { voronoiApi, populationApi, boundariesApi, type Facility, type GeoJSONFeatureCollection, type GeoJSONFeature, type FacilityInsights } from '@/lib/api';
+import { voronoiApi, populationApi, boundariesApi, areaRatingApi, type Facility, type GeoJSONFeatureCollection, type GeoJSONFeature, type FacilityInsights } from '@/lib/api';
 import { exportToPNG2, exportToGeoJSON } from '@/lib/export';
 import * as turf from '@turf/turf';
 
@@ -44,6 +44,9 @@ export default function Home() {
   const [showEnclosingCircles, setShowEnclosingCircles] = useState(false);
   const [isLoadingInsights, setIsLoadingInsights] = useState(false);
   const [insightsError, setInsightsError] = useState<string | null>(null);
+  const [heatmapData, setHeatmapData] = useState<Array<{ lat: number; lng: number; weight: number }>>([]);
+  const [isHeatmapLoading, setIsHeatmapLoading] = useState(false);
+  const [activeHeatmapType, setActiveHeatmapType] = useState<'emergency' | 'living' | null>(null);
 
   // Fetch states list and India boundary on mount
   useEffect(() => {
@@ -300,6 +303,25 @@ export default function Home() {
     exportToGeoJSON(voronoiData, 'tessera-voronoi.geojson');
   }, [voronoiData]);
 
+  const handleHeatmapToggle = useCallback(async (type: 'emergency' | 'living' | null) => {
+    setActiveHeatmapType(type);
+    if (!type) {
+      setHeatmapData([]);
+      return;
+    }
+
+    setIsHeatmapLoading(true);
+    try {
+      const data = await areaRatingApi.getHeatmapData(type);
+      setHeatmapData(data);
+    } catch (err) {
+      console.error('Failed to fetch heatmap data:', err);
+      setError('Failed to load heatmap data. Please try again.');
+    } finally {
+      setIsHeatmapLoading(false);
+    }
+  }, []);
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
       {/* Header */}
@@ -526,6 +548,7 @@ export default function Home() {
               onLocationSelect={(lat, lng) => {
                 setMapCenter({ lat, lng, zoom: 12 });
               }}
+              onHeatmapToggle={handleHeatmapToggle}
             />
           </div>
 
@@ -547,6 +570,8 @@ export default function Home() {
                     mec: facilityInsights.minimum_enclosing_circle,
                     largestEmpty: facilityInsights.largest_empty_circle,
                   } : undefined}
+                  heatmapData={heatmapData}
+                  heatmapType={activeHeatmapType}
                 />
               </div>
 
@@ -575,6 +600,59 @@ export default function Home() {
                       <div className="w-4 h-3 rounded" style={{ backgroundColor: '#FFEDA0' }}></div>
                       <span className="text-xs text-black">&lt; 100K</span>
                     </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Heatmap Legend */}
+              {activeHeatmapType && (
+                <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-4 flex-shrink-0 w-40 self-start animate-fade-in">
+                  <div className="font-semibold text-black mb-1 text-sm">
+                    {activeHeatmapType === 'emergency' ? '🚨 Risk Level' : '🏠 Life Quality'}
+                  </div>
+                  <div className="text-[10px] text-gray-500 mb-2">
+                    {activeHeatmapType === 'emergency' ? 'Nearness to facilities' : 'Accessibility index'}
+                  </div>
+                  <div className="space-y-1.5">
+                    {activeHeatmapType === 'emergency' ? (
+                      <>
+                        <div className="flex items-center gap-2">
+                          <div className="w-4 h-3 rounded" style={{ backgroundColor: '#800026' }}></div>
+                          <span className="text-[11px] text-black font-medium">Critical</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <div className="w-4 h-3 rounded" style={{ backgroundColor: '#E31A1C' }}></div>
+                          <span className="text-[11px] text-black font-medium">High</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <div className="w-4 h-3 rounded" style={{ backgroundColor: '#FC4E2A' }}></div>
+                          <span className="text-[11px] text-black font-medium">Moderate</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <div className="w-4 h-3 rounded" style={{ backgroundColor: '#FED976' }}></div>
+                          <span className="text-[11px] text-black font-medium">Low</span>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="flex items-center gap-2">
+                          <div className="w-4 h-3 rounded" style={{ backgroundColor: '#006837' }}></div>
+                          <span className="text-[11px] text-black font-medium">Excellent</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <div className="w-4 h-3 rounded" style={{ backgroundColor: '#31a354' }}></div>
+                          <span className="text-[11px] text-black font-medium">Good</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <div className="w-4 h-3 rounded" style={{ backgroundColor: '#78c679' }}></div>
+                          <span className="text-[11px] text-black font-medium">Fair</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <div className="w-4 h-3 rounded" style={{ backgroundColor: '#c2e699' }}></div>
+                          <span className="text-[11px] text-black font-medium">Basic</span>
+                        </div>
+                      </>
+                    )}
                   </div>
                 </div>
               )}

@@ -189,6 +189,8 @@ export default function ChatPanel({ isOpen, onClose, onDataLoad }: ChatPanelProp
                 role: 'assistant',
                 content: response.response,
                 timestamp: response.timestamp,
+                tools_used: response.tools_used,
+                tool_calls: response.tool_calls,
             };
 
             setMessages(prev => [...prev, assistantMessage]);
@@ -400,22 +402,60 @@ export default function ChatPanel({ isOpen, onClose, onDataLoad }: ChatPanelProp
                                 }`}
                         >
                             {msg.role === 'assistant' ? (
-                                <div className="text-sm markdown-body">
-                                    <ReactMarkdown
-                                        remarkPlugins={[remarkGfm]}
-                                        components={{
-                                            ul: ({ node, ...props }) => <ul className="list-disc pl-4 my-1" {...props} />,
-                                            ol: ({ node, ...props }) => <ol className="list-decimal pl-4 my-1" {...props} />,
-                                            li: ({ node, ...props }) => <li className="my-0.5" {...props} />,
-                                            p: ({ node, ...props }) => <p className="mb-2 last:mb-0" {...props} />,
-                                            strong: ({ node, ...props }) => <strong className="font-semibold" {...props} />,
-                                            a: ({ node, ...props }) => <a className="text-blue-600 hover:underline" target="_blank" rel="noopener noreferrer" {...props} />,
-                                            code: ({ node, ...props }) => <code className="bg-gray-200 px-1 py-0.5 rounded text-xs font-mono" {...props} />
-                                        }}
-                                    >
-                                        {msg.content}
-                                    </ReactMarkdown>
-                                </div>
+                                <>
+                                    <div className="text-sm markdown-body">
+                                        <ReactMarkdown
+                                            remarkPlugins={[remarkGfm]}
+                                            components={{
+                                                ul: ({ node, ...props }) => <ul className="list-disc pl-4 my-1" {...props} />,
+                                                ol: ({ node, ...props }) => <ol className="list-decimal pl-4 my-1" {...props} />,
+                                                li: ({ node, ...props }) => <li className="my-0.5" {...props} />,
+                                                p: ({ node, ...props }) => <p className="mb-2 last:mb-0" {...props} />,
+                                                strong: ({ node, ...props }) => <strong className="font-semibold" {...props} />,
+                                                a: ({ node, ...props }) => <a className="text-blue-600 hover:underline" target="_blank" rel="noopener noreferrer" {...props} />,
+                                                code: ({ node, ...props }) => <code className="bg-gray-200 px-1 py-0.5 rounded text-xs font-mono" {...props} />
+                                            }}
+                                        >
+                                            {msg.content}
+                                        </ReactMarkdown>
+                                    </div>
+                                    {/* (msg as any).tools_used is not available in ChatMessage type, we need to handle it */}
+                                    {msg.tool_calls && msg.tool_calls.length > 0 && (
+                                        <div className="mt-3 pt-3 border-t border-gray-200">
+                                            <details className="group">
+                                                <summary className="flex items-center justify-between cursor-pointer list-none">
+                                                    <div className="text-[10px] text-gray-400 font-bold uppercase tracking-wider group-open:text-indigo-500 transition-colors">
+                                                        Backend Execution Details
+                                                    </div>
+                                                    <svg
+                                                        className="w-3 h-3 text-gray-400 group-open:rotate-180 transition-transform duration-200"
+                                                        fill="none"
+                                                        stroke="currentColor"
+                                                        viewBox="0 0 24 24"
+                                                    >
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M19 9l-7 7-7-7" />
+                                                    </svg>
+                                                </summary>
+                                                <div className="space-y-2 mt-2 animate-slide-down">
+                                                    {msg.tool_calls.map((call, idx) => (
+                                                        <div key={idx} className="bg-gray-50 rounded-lg p-2 border border-gray-100">
+                                                            <div className="flex items-center gap-2 mb-1">
+                                                                <span className="text-[10px] bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded font-bold font-mono">
+                                                                    {call.tool}
+                                                                </span>
+                                                            </div>
+                                                            <pre className="text-[10px] font-mono text-gray-600 bg-white p-1.5 rounded border border-gray-100 overflow-x-auto whitespace-pre-wrap break-all max-h-32 overflow-y-auto">
+                                                                {typeof call.input === 'object' && call.input !== null
+                                                                    ? (call.input.code || JSON.stringify(call.input, null, 2))
+                                                                    : String(call.input)}
+                                                            </pre>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </details>
+                                        </div>
+                                    )}
+                                </>
                             ) : (
                                 <p className="whitespace-pre-wrap">{msg.content}</p>
                             )}
