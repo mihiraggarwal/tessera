@@ -3,6 +3,8 @@ Area Rating Service - Computes area ratings based on facility coverage.
 """
 from typing import Dict, Any, List, Optional
 import math
+import os
+import json
 
 from app.services.pincode_service import PincodeService, PincodeInfo
 from app.services.precompute_service import PrecomputeService
@@ -19,9 +21,12 @@ from app.services.dataset_registry import (
 class AreaRatingService:
     """Service for computing area ratings based on facility proximity."""
     
+    CACHE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "cache", "heatmaps")
+    
     def __init__(self):
         self._pincode_service = PincodeService()
         self._precompute_service = PrecomputeService()
+        os.makedirs(self.CACHE_DIR, exist_ok=True)
     
     def analyze_by_pincode(
         self, 
@@ -291,3 +296,106 @@ class AreaRatingService:
         
         return recommendations[:4]  # Limit to 4 most relevant recommendations
 
+    def get_heatmap_data(self, analysis_type: str) -> List[Dict[str, Any]]:
+        """
+        Get precomputed heatmap data for all pincodes.
+        Uses a cache to avoid recomputing every time.
+        """
+        cache_path = os.path.join(self.CACHE_DIR, f"{analysis_type}.json")
+        
+        # Check cache (valid for 24 hours or just check existence for now)
+        if os.path.exists(cache_path):
+            try:
+                with open(cache_path, 'r') as f:
+                    return json.load(f)
+            except Exception as e:
+                print(f"Error reading heatmap cache: {e}")
+        
+        # If not cached, compute for all pincodes
+        print(f"Computing heatmap for {analysis_type}...")
+        
+        # Load datasets and build KDTrees for speed
+        from scipy.spatial import KDTree
+        import numpy as np
+        
+        datasets = get_datasets_for_type(analysis_type)
+        weights = get_weights_for_type(analysis_type)
+        
+        dataset_trees = {}
+        for dataset in datasets:
+            facilities = self._precompute_service.load_dataset(dataset)
+            if facilities:
+                coords = np.array([[f["lat"], f["lng"]] for f in facilities])
+                dataset_trees[dataset] = {
+                    "tree": KDTree(coords),
+                    "weight": weights.get(dataset, 0.0)
+                }
+        
+        if not dataset_trees:
+            print(f"No facilities found for {analysis_type}")
+            return []
+            
+        heatmap_points = []
+        
+        # Get all pincodes from service
+        pincodes = self._pincode_service._pincodes
+        total = len(pincodes)
+        count = 0
+        
+        print(f"Processing {total} pincodes using KDTree...")
+        
+        for pincode, info in pincodes.items():
+            count += 1
+            if count % 5000 == 0 or count == 1:
+                print(f"Heatmap progress ({analysis_type}): {count}/{total} ({(count/total*100):.1f}%)")
+            
+            try:
+                weighted_sum = 0.0
+                total_weight = 0.0
+                
+                for dataset, data in dataset_trees.items():
+                    tree = data["tree"]
+                    weight = data["weight"]
+                    
+                    # Query KDTree for nearest point
+                    # d is Euclidean distance in degrees (approximate but enough for rating)
+                    d, idx = tree.query([info.lat, info.lng])
+                    
+                    # Convert degree distance to approximate km (1 degree ~ 111km)
+                    distance_km = d * 111.0
+                    
+                    score = calculate_distance_score(distance_km)
+                    weighted_sum += score * weight
+                    total_weight += weight
+                
+                overall_score = weighted_sum / total_weight if total_weight > 0 else 0
+                
+                if overall_score > 0:
+                    heatmap_points.append({
+                        "lat": info.lat,
+                        "lng": info.lng,
+                        "weight": round(overall_score / 100.0, 3)
+                    })
+            except Exception as e:
+                continue
+        
+        print(f"Heatmap computation for {analysis_type} complete! Generated {len(heatmap_points)} points.")
+        # Cache the result
+        try:
+            with open(cache_path, 'w') as f:
+                json.dump(heatmap_points, f)
+            print(f"Heatmap for {analysis_type} cached to {cache_path}")
+        except Exception as e:
+            print(f"Error caching heatmap: {e}")
+            
+        return heatmap_points
+
+
+def calculate_distance_score(distance: float) -> int:
+    """Calculate a score (0-100) based on distance."""
+    if distance < 2: return 100
+    if distance < 5: return 80
+    if distance < 10: return 60
+    if distance < 20: return 40
+    if distance < 40: return 20
+    return 10

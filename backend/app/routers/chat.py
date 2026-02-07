@@ -29,6 +29,8 @@ class ChatMessageResponse(BaseModel):
     session_id: str
     timestamp: str
     data: Optional[dict] = None  # Optional structured data (e.g., facilities)
+    tools_used: Optional[list] = []  # Backend functions used
+    tool_calls: Optional[list] = []  # Detailed tool calls with inputs
 
 
 class ConversationHistoryResponse(BaseModel):
@@ -72,7 +74,9 @@ async def send_message(request: ChatMessageRequest):
             response=result["response"],
             session_id=request.session_id,
             timestamp=datetime.now().isoformat(),
-            data=result["data"]
+            data=result["data"],
+            tools_used=result.get("tools_used", []),
+            tool_calls=result.get("tool_calls", [])
         )
         
     except Exception as e:

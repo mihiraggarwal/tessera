@@ -197,3 +197,17 @@ async def get_analysis_types():
             }
         ]
     }
+@router.get("/heatmap/{analysis_type}")
+async def get_heatmap(analysis_type: Literal["emergency", "living"]):
+    """
+    Get precomputed heatmap data for all pincodes.
+    Returns a list of {lat, lng, weight} objects.
+    """
+    try:
+        service = AreaRatingService()
+        result = service.get_heatmap_data(analysis_type)
+        return result
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))

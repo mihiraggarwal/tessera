@@ -33,7 +33,7 @@ def get_conversation_history(session_id: str) -> List[Dict]:
     return _conversations.get(session_id, [])
 
 
-def add_to_conversation(session_id: str, role: str, content: str) -> None:
+def add_to_conversation(session_id: str, role: str, content: str, tools_used: Optional[List[str]] = None, data: Optional[Dict] = None, tool_calls: Optional[List[Dict]] = None) -> None:
     """Add a message to conversation history."""
     if session_id not in _conversations:
         _conversations[session_id] = []
@@ -41,7 +41,10 @@ def add_to_conversation(session_id: str, role: str, content: str) -> None:
     _conversations[session_id].append({
         "role": role,
         "content": content,
-        "timestamp": datetime.now().isoformat()
+        "timestamp": datetime.now().isoformat(),
+        "tools_used": tools_used or [],
+        "tool_calls": tool_calls or [],
+        "data": data
     })
 
 
@@ -483,7 +486,7 @@ async def process_chat_message(
     message: str,
     api_key: str,
     provider: str = "openai"
-) -> str:
+) -> Dict[str, Any]:
     """
     Process a chat message and return the AI response.
     
@@ -577,14 +580,27 @@ async def process_chat_message(
                     text_parts.append(item)
             response = "".join(text_parts)
             
-        print(f"[CHAT DEBUG] Response received: {str(response)[:200]}...")
+        # Extract tools used and their inputs from intermediate steps
+        tools_used = []
+        tool_calls = []
+        for action, _ in intermediate_steps:
+            if hasattr(action, 'tool'):
+                if action.tool not in tools_used:
+                    tools_used.append(action.tool)
+                
+                tool_calls.append({
+                    "tool": action.tool,
+                    "input": action.tool_input if hasattr(action, 'tool_input') else str(action)
+                })
         
         # Add assistant response to history
-        add_to_conversation(session_id, "assistant", response)
-        
+        add_to_conversation(session_id, "assistant", response, tools_used=tools_used, data=facility_data, tool_calls=tool_calls)
+
         return {
             "response": response,
-            "data": facility_data
+            "data": facility_data,
+            "tools_used": tools_used,
+            "tool_calls": tool_calls
         }
         
     except Exception as e:
@@ -593,5 +609,6 @@ async def process_chat_message(
         add_to_conversation(session_id, "assistant", error_msg)
         return {
             "response": error_msg,
-            "data": None
+            "data": None,
+            "tools_used": []
         }

@@ -5,12 +5,33 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.routers import voronoi, upload, boundaries, population, dcel, chat, area_rating
+from contextlib import asynccontextmanager
+import threading
 from pathlib import Path
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Start precomputation in background thread
+    def precompute_heatmaps():
+        try:
+            from app.services.area_rating_service import AreaRatingService
+            service = AreaRatingService()
+            # Trigger lazy loading/computation
+            # This only computes if cache is missing
+            service.get_heatmap_data("emergency")
+            service.get_heatmap_data("living")
+        except Exception as e:
+            print(f"Startup precomputation error: {e}")
+
+    thread = threading.Thread(target=precompute_heatmaps, daemon=True)
+    thread.start()
+    yield
 
 app = FastAPI(
     title="Voronoi Population Mapping API",
     description="Compute Voronoi diagrams for facilities and weighted population estimates",
     version="0.2.0",
+    lifespan=lifespan,
 )
 
 # Ensure data directories exist

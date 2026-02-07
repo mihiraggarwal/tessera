@@ -5,9 +5,10 @@ import { areaRatingApi, AreaRatingResponse, PincodeInfo } from '@/lib/api';
 
 interface AreaAnalysisProps {
     onLocationSelect?: (lat: number, lng: number) => void;
+    onHeatmapToggle?: (type: 'emergency' | 'living' | null) => void;
 }
 
-export default function AreaAnalysis({ onLocationSelect }: AreaAnalysisProps) {
+export default function AreaAnalysis({ onLocationSelect, onHeatmapToggle }: AreaAnalysisProps) {
     const [analysisType, setAnalysisType] = useState<'emergency' | 'living'>('emergency');
     const [inputMethod, setInputMethod] = useState<'pincode' | 'location'>('pincode');
     const [pincode, setPincode] = useState('');
@@ -17,6 +18,7 @@ export default function AreaAnalysis({ onLocationSelect }: AreaAnalysisProps) {
     const [locationLoading, setLocationLoading] = useState(false);
     const [result, setResult] = useState<AreaRatingResponse | null>(null);
     const [error, setError] = useState<string | null>(null);
+    const [heatmapActive, setHeatmapActive] = useState<'emergency' | 'living' | null>(null);
 
     // Handle pincode search
     const handlePincodeChange = async (value: string) => {
@@ -129,7 +131,7 @@ export default function AreaAnalysis({ onLocationSelect }: AreaAnalysisProps) {
     };
 
     return (
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 transition-all duration-300">
             <h2 className="text-lg font-semibold text-gray-900 mb-4">📊 Area Analysis</h2>
 
             {/* Analysis Type Toggle */}
@@ -137,8 +139,8 @@ export default function AreaAnalysis({ onLocationSelect }: AreaAnalysisProps) {
                 <button
                     onClick={() => setAnalysisType('emergency')}
                     className={`flex-1 py-2 px-4 rounded-lg font-medium transition-all ${analysisType === 'emergency'
-                            ? 'bg-red-500 text-white shadow-lg shadow-red-200'
-                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                        ? 'bg-red-500 text-white shadow-lg shadow-red-200'
+                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                         }`}
                 >
                     🚨 Emergency
@@ -146,8 +148,8 @@ export default function AreaAnalysis({ onLocationSelect }: AreaAnalysisProps) {
                 <button
                     onClick={() => setAnalysisType('living')}
                     className={`flex-1 py-2 px-4 rounded-lg font-medium transition-all ${analysisType === 'living'
-                            ? 'bg-green-500 text-white shadow-lg shadow-green-200'
-                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                        ? 'bg-green-500 text-white shadow-lg shadow-green-200'
+                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                         }`}
                 >
                     🏠 Living
@@ -159,8 +161,8 @@ export default function AreaAnalysis({ onLocationSelect }: AreaAnalysisProps) {
                 <button
                     onClick={() => setInputMethod('pincode')}
                     className={`flex-1 py-2 px-3 rounded-lg text-sm transition-all ${inputMethod === 'pincode'
-                            ? 'bg-blue-500 text-white'
-                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                        ? 'bg-blue-500 text-white'
+                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                         }`}
                 >
                     📮 Enter Pincode
@@ -168,11 +170,45 @@ export default function AreaAnalysis({ onLocationSelect }: AreaAnalysisProps) {
                 <button
                     onClick={() => setInputMethod('location')}
                     className={`flex-1 py-2 px-3 rounded-lg text-sm transition-all ${inputMethod === 'location'
-                            ? 'bg-blue-500 text-white'
-                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                        ? 'bg-blue-500 text-white'
+                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                         }`}
                 >
                     📍 Use Location
+                </button>
+            </div>
+
+            {/* Heatmap Toggles */}
+            <div className="grid grid-cols-2 gap-2 mb-4">
+                <button
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        // Toggle heatmap
+                        const newValue = heatmapActive === 'emergency' ? null : 'emergency';
+                        setHeatmapActive(newValue);
+                        if (onHeatmapToggle) onHeatmapToggle(newValue);
+                    }}
+                    className={`text-[11px] py-1.5 px-2 rounded-lg font-bold border transition-all ${heatmapActive === 'emergency'
+                        ? 'bg-red-600 text-white border-red-600 shadow-md ring-2 ring-red-100'
+                        : 'bg-white text-red-600 border-red-200 hover:bg-red-50'
+                        }`}
+                >
+                    {heatmapActive === 'emergency' ? 'Hide Risk Heatmap' : 'Show Risk Heatmap'}
+                </button>
+                <button
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        // Toggle heatmap
+                        const newValue = heatmapActive === 'living' ? null : 'living';
+                        setHeatmapActive(newValue);
+                        if (onHeatmapToggle) onHeatmapToggle(newValue);
+                    }}
+                    className={`text-[11px] py-1.5 px-2 rounded-lg font-bold border transition-all ${heatmapActive === 'living'
+                        ? 'bg-green-600 text-white border-green-600 shadow-md ring-2 ring-green-100'
+                        : 'bg-white text-green-600 border-green-200 hover:bg-green-50'
+                        }`}
+                >
+                    {heatmapActive === 'living' ? 'Hide Quality Heatmap' : 'Show Quality Heatmap'}
                 </button>
             </div>
 
