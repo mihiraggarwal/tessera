@@ -79,18 +79,59 @@ export default function Home() {
       .catch((err) => console.error("Failed to load India boundary", err));
   }, []);
 
-  // Fetch state boundary when selectedState changes
+  // Fetch state boundary when selectedState changes and auto-zoom to region
   useEffect(() => {
     if (selectedState) {
       boundariesApi
         .getStateBoundary(selectedState)
-        .then(setSelectedStateBoundary)
+        .then((boundary) => {
+          setSelectedStateBoundary(boundary);
+
+          // Auto-zoom to the selected region
+          if (boundary && boundary.geometry) {
+            try {
+              const bbox = turf.bbox(boundary as GeoJSON.Feature);
+              // bbox returns [minX, minY, maxX, maxY] = [minLng, minLat, maxLng, maxLat]
+              const centerLat = (bbox[1] + bbox[3]) / 2;
+              const centerLng = (bbox[0] + bbox[2]) / 2;
+
+              // Calculate appropriate zoom level based on bbox size
+              const latDiff = bbox[3] - bbox[1];
+              const lngDiff = bbox[2] - bbox[0];
+              const maxDiff = Math.max(latDiff, lngDiff);
+
+              // Approximate zoom calculation (larger area = lower zoom)
+              let zoom = 6;
+              if (maxDiff < 1) zoom = 10;
+              else if (maxDiff < 2) zoom = 9;
+              else if (maxDiff < 4) zoom = 8;
+              else if (maxDiff < 6) zoom = 7;
+              else if (maxDiff < 10) zoom = 6;
+              else zoom = 5;
+
+              setMapCenter({ lat: centerLat, lng: centerLng, zoom });
+            } catch (err) {
+              console.error("Failed to calculate bbox for region", err);
+            }
+          }
+        })
         .catch((err) => {
           console.error("Failed to load state boundary", err);
           setSelectedStateBoundary(null);
         });
     } else {
       setSelectedStateBoundary(null);
+      // Reset to India view when "All India" is selected
+      setMapCenter({ lat: 20.5937, lng: 78.9629, zoom: 5 });
+    }
+  }, [selectedState]);
+
+  // Auto-enable point filtering when a state is selected
+  useEffect(() => {
+    if (selectedState) {
+      setFilterOutOfRegion(true);
+    } else {
+      setFilterOutOfRegion(false);
     }
   }, [selectedState]);
 

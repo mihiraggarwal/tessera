@@ -133,12 +133,16 @@ Data structure for efficient spatial queries on Voronoi diagrams:
 **Architecture:**
 The chat service uses a **Python REPL** approach where the LLM writes and executes arbitrary Python code to analyze the DCEL. This provides maximum flexibility compared to rigid pre-defined tools.
 
-**4 Core Tools:**
+**8 Core Tools:**
 
 1. `execute_python`: Sandboxed Python executor with pattern blocking (see `python_executor.py`)
 2. `get_available_values`: Discover unique values in dataset fields (state, district, type)
 3. `fuzzy_search`: Find closest matches for misspelled queries
 4. `inspect_sample`: View sample facilities to understand data structure
+5. `analyze_dataset`: Analyze raw CSV schema for data augmentation
+6. `transform_dataset`: Transform raw CSV to Tessera's standard format
+7. `get_area_risk`: Get risk/quality rating for areas by pincode or coordinates
+8. `get_heatmap_summary`: Get national statistics on emergency/living conditions coverage
 
 **Helper Functions** (injected into execution environment via `helper_functions.py`):
 
@@ -152,7 +156,7 @@ The chat service uses a **Python REPL** approach where the LLM writes and execut
 
 - Pattern blocking for dangerous operations (eval, exec, import, file I/O)
 - No dependency on RestrictedPython (simplified to basic exec)
-- Max 5 iterations to prevent runaway execution
+- Max 10 iterations to prevent runaway execution
 - LangChain CVE-2025-65106 mitigated by avoiding f-strings in prompt templates
 
 ---

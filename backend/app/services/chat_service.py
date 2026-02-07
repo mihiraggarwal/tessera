@@ -21,6 +21,7 @@ from app.services.dcel import get_current_dcel
 from app.services.python_executor import get_executor
 from app.services.helper_functions import create_helper_functions
 from app.services.augmentation_service import AugmentationService
+from app.services.area_rating_service import AreaRatingService
 from pathlib import Path
 
 
@@ -328,6 +329,124 @@ def transform_dataset(file_path: str, name_col: str, lat_col: str, lng_col: str,
         return {"success": False, "error": str(e)}
 
 
+@tool
+def get_area_risk(pincode: str = None, lat: float = None, lng: float = None, analysis_type: str = "emergency") -> dict:
+    """
+    Get the risk/quality rating for a specific area by pincode or coordinates.
+    
+    Use this tool to analyze how well-served an area is for emergency services or living conditions.
+    
+    Args:
+        pincode: 6-digit Indian postal code (e.g., '110001' for Delhi)
+        lat: Latitude (use with lng if pincode not available)
+        lng: Longitude (use with lat if pincode not available)
+        analysis_type: Type of analysis - 'emergency' (hospitals, fire stations, police) or 'living' (schools, parks, banks)
+    
+    Returns:
+        Dict with overall_score (0-100), grade (A-F), breakdown by facility type, and recommendations
+    
+    Example: get_area_risk(pincode='110001', analysis_type='emergency') -> emergency risk analysis for that pincode
+    """
+    print(f"[TOOL DEBUG] get_area_risk called for pincode={pincode}, lat={lat}, lng={lng}, type={analysis_type}")
+    
+    if analysis_type not in ['emergency', 'living']:
+        return {"error": "analysis_type must be 'emergency' or 'living'"}
+    
+    service = AreaRatingService()
+    
+    try:
+        if pincode:
+            result = service.analyze_by_pincode(pincode, analysis_type)
+        elif lat is not None and lng is not None:
+            result = service.analyze_by_location(lat, lng, analysis_type)
+        else:
+            return {"error": "Provide either pincode OR lat/lng coordinates"}
+        
+        # Return a summarized version to avoid overwhelming the LLM
+        return {
+            "overall_score": result.get("overall_score"),
+            "grade": result.get("grade"),
+            "analysis_type": result.get("analysis_type"),
+            "location": result.get("location"),
+            "breakdown": result.get("breakdown"),
+            "recommendations": result.get("recommendations", [])[:5],  # Limit recommendations
+            "pincode_info": result.get("pincode_info")
+        }
+    except ValueError as e:
+        return {"error": str(e)}
+    except Exception as e:
+        return {"error": f"Analysis failed: {str(e)}"}
+
+
+@tool
+def get_heatmap_summary(analysis_type: str = "emergency") -> dict:
+    """
+    Get summary statistics of the national risk/quality heatmap.
+    
+    Use this to understand the overall distribution of emergency or living conditions across India.
+    
+    Args:
+        analysis_type: 'emergency' for emergency services coverage, 'living' for living conditions
+    
+    Returns:
+        Dict with count, average score, score distribution (percentiles), and high/low risk areas
+    
+    Example: get_heatmap_summary('emergency') -> national emergency coverage statistics
+    """
+    print(f"[TOOL DEBUG] get_heatmap_summary called for type={analysis_type}")
+    
+    if analysis_type not in ['emergency', 'living']:
+        return {"error": "analysis_type must be 'emergency' or 'living'"}
+    
+    service = AreaRatingService()
+    
+    try:
+        heatmap_data = service.get_heatmap_data(analysis_type)
+        
+        if not heatmap_data:
+            return {"error": "No heatmap data available. It may still be computing."}
+        
+        scores = [point['weight'] * 100 for point in heatmap_data]  # Convert to 0-100 scale
+        scores_sorted = sorted(scores)
+        n = len(scores)
+        
+        # Calculate percentiles
+        p10 = scores_sorted[int(n * 0.1)] if n > 10 else scores_sorted[0]
+        p25 = scores_sorted[int(n * 0.25)] if n > 4 else scores_sorted[0]
+        p50 = scores_sorted[int(n * 0.5)] if n > 2 else scores_sorted[0]
+        p75 = scores_sorted[int(n * 0.75)] if n > 4 else scores_sorted[-1]
+        p90 = scores_sorted[int(n * 0.9)] if n > 10 else scores_sorted[-1]
+        
+        # Count by grade
+        grade_counts = {
+            'A (80-100)': len([s for s in scores if s >= 80]),
+            'B (60-80)': len([s for s in scores if 60 <= s < 80]),
+            'C (40-60)': len([s for s in scores if 40 <= s < 60]),
+            'D (20-40)': len([s for s in scores if 20 <= s < 40]),
+            'F (0-20)': len([s for s in scores if s < 20])
+        }
+        
+        return {
+            "analysis_type": analysis_type,
+            "total_areas": n,
+            "average_score": round(sum(scores) / n, 1) if n else 0,
+            "min_score": round(min(scores), 1) if scores else 0,
+            "max_score": round(max(scores), 1) if scores else 0,
+            "percentiles": {
+                "p10": round(p10, 1),
+                "p25 (lower quartile)": round(p25, 1),
+                "p50 (median)": round(p50, 1),
+                "p75 (upper quartile)": round(p75, 1),
+                "p90": round(p90, 1)
+            },
+            "grade_distribution": grade_counts,
+            "interpretation": f"The median {analysis_type} score is {round(p50, 1)}/100. " +
+                             f"{grade_counts.get('F (0-20)', 0)} areas are critically underserved (grade F)."
+        }
+    except Exception as e:
+        return {"error": f"Failed to get heatmap summary: {str(e)}"}
+
+
 # =============================================================================
 # SYSTEM PROMPT
 # =============================================================================
@@ -408,6 +527,20 @@ Find coverage gaps:
 - Use safe_get_property for all property access
 - Use print() to show results
 
+## RISK ANALYSIS TOOLS
+For questions about area safety, risk, or livability:
+- get_area_risk(pincode='110001', analysis_type='emergency') -> Get risk score for a pincode
+- get_area_risk(lat=28.6, lng=77.2, analysis_type='living') -> Get living conditions score by coordinates
+- get_heatmap_summary('emergency') -> National emergency coverage statistics
+
+Use these tools when users ask about safety, risk assessment, or quality of areas.
+
+## OUTPUT FORMATTING
+- ALWAYS use bullet points for lists and data presentation
+- NEVER use markdown tables as they break the chat window boundaries
+- Keep responses concise and well-formatted
+- Use headers (##) to organize sections when needed
+
 ## ERROR HANDLING
 If code fails, use get_available_values() or fuzzy_search() to debug, then retry.
 You have up to 3 attempts!
@@ -450,7 +583,9 @@ def create_chat_agent(api_key: str, provider: str = "openai") -> AgentExecutor:
         fuzzy_search,
         inspect_sample,
         analyze_dataset,
-        transform_dataset
+        transform_dataset,
+        get_area_risk,
+        get_heatmap_summary
     ]
     
     prompt = ChatPromptTemplate.from_messages([
@@ -528,7 +663,9 @@ async def process_chat_message(
             fuzzy_search,
             inspect_sample,
             analyze_dataset,
-            transform_dataset
+            transform_dataset,
+            get_area_risk,
+            get_heatmap_summary
         ]
         
         prompt = ChatPromptTemplate.from_messages([

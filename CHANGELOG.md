@@ -2,6 +2,24 @@
 
 All notable changes to Tessera will be documented in this file.
 
+## [0.2.1] - 2026-02-08
+
+### Added
+
+- **Chatbot Risk Analysis Tools**: New tools for the AI chatbot to access area rating data
+  - `get_area_risk(pincode, analysis_type)` - Get risk/quality rating for specific areas by pincode or coordinates
+  - `get_heatmap_summary(analysis_type)` - Get national statistics on emergency/living conditions coverage
+- **Auto-Zoom on Region Selection**: Map now automatically zooms to the selected state/UT when changed in the dropdown
+- **Auto-Hide Out-of-Region Facilities**: Facilities outside the selected state are now automatically hidden when a state is selected
+
+### Changed
+
+- Updated system prompt to document risk analysis tools
+- Region dropdown now resets map to India view when "All India" is selected
+- Chatbot now uses bullet points instead of tables to prevent overflow in chat window
+
+---
+
 ## [0.2.0] - 2026-02-06
 
 ### Added
