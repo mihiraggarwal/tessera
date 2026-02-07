@@ -185,6 +185,100 @@ class DCEL:
         
         return adjacent
     
+    def k_nearest_neighbors(self, lat: float, lng: float, k: int = 5) -> List[DCELFace]:
+        """
+        Get k nearest facility cells by Euclidean distance from a point.
+        
+        Uses facility centroids for distance calculation.
+        
+        Args:
+            lat: Query point latitude
+            lng: Query point longitude
+            k: Number of nearest neighbors to return
+            
+        Returns:
+            List of DCELFaces ordered by distance (nearest first)
+        """
+        if not self.faces:
+            return []
+        
+        query_point = Point(lng, lat)
+        
+        # Calculate distances to all facility centroids
+        distances = []
+        for face in self.faces:
+            if face.polygon:
+                centroid = face.polygon.centroid
+                dist = query_point.distance(centroid)
+                distances.append((dist, face))
+        
+        # Sort by distance and return top k
+        distances.sort(key=lambda x: x[0])
+        return [face for dist, face in distances[:k]]
+    
+    def adaptive_k(self, lat: float, lng: float, base_k: int = 5, 
+                   distortion_threshold: float = 3.0) -> Tuple[int, List[DCELFace]]:
+        """
+        Get k nearest neighbors with adaptive k expansion based on distortion detection.
+        
+        If the ratio of the kth distance to the 1st distance exceeds the threshold,
+        this indicates potential barriers and k is expanded.
+        
+        Args:
+            lat: Query point latitude
+            lng: Query point longitude
+            base_k: Initial k value
+            distortion_threshold: Ratio threshold for k expansion (default 3.0)
+            
+        Returns:
+            Tuple of (k_used, list of DCELFaces)
+        """
+        if not self.faces:
+            return base_k, []
+        
+        query_point = Point(lng, lat)
+        
+        # Calculate distances to all facility centroids
+        distances = []
+        for face in self.faces:
+            if face.polygon:
+                centroid = face.polygon.centroid
+                dist = query_point.distance(centroid)
+                distances.append((dist, face))
+        
+        # Sort by distance
+        distances.sort(key=lambda x: x[0])
+        
+        if len(distances) < base_k:
+            return len(distances), [face for _, face in distances]
+        
+        # Check for distortion
+        first_dist = distances[0][0]
+        kth_dist = distances[base_k - 1][0]
+        
+        if first_dist > 0 and kth_dist / first_dist > distortion_threshold:
+            # High distortion detected - expand k
+            expanded_k = min(base_k * 2, len(distances))
+            return expanded_k, [face for _, face in distances[:expanded_k]]
+        
+        return base_k, [face for _, face in distances[:base_k]]
+    
+    def get_facility_centroid(self, facility_id: str) -> Optional[Tuple[float, float]]:
+        """
+        Get the centroid coordinates of a facility's Voronoi cell.
+        
+        Args:
+            facility_id: ID of the facility
+            
+        Returns:
+            Tuple of (lat, lng) or None if facility not found
+        """
+        face = self.get_face_by_facility_id(facility_id)
+        if face and face.polygon:
+            centroid = face.polygon.centroid
+            return (centroid.y, centroid.x)  # (lat, lng)
+        return None
+    
     def get_facilities_by_population(self, top_n: int = 10, 
                                      state: Optional[str] = None) -> List[Dict]:
         """

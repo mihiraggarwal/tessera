@@ -1,0 +1,22 @@
+services:
+  osrm:
+    image: osrm/osrm-backend:latest
+    container_name: tessera-osrm
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./osrm-data:/data
+    command: osrm-routed --algorithm mld /data/india-latest.osrm
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "curl",
+          "-f",
+          "http://localhost:5000/route/v1/driving/77.2090,28.6139;77.2310,28.6139",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
