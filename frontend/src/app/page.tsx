@@ -5,7 +5,7 @@ import dynamic from 'next/dynamic';
 import FileUpload from '@/components/FileUpload';
 import AreaAnalysis from '@/components/AreaAnalysis';
 import { ChatButton } from '@/components/Chat';
-import { voronoiApi, populationApi, boundariesApi, type Facility, type GeoJSONFeatureCollection, type GeoJSONFeature, type FacilityInsights } from '@/lib/api';
+import { voronoiApi, populationApi, boundariesApi, roadNetworkApi, type Facility, type GeoJSONFeatureCollection, type GeoJSONFeature, type FacilityInsights, type RoadDistrict } from '@/lib/api';
 import { exportToPNG2, exportToGeoJSON } from '@/lib/export';
 import * as turf from '@turf/turf';
 
@@ -45,6 +45,15 @@ export default function Home() {
   const [isLoadingInsights, setIsLoadingInsights] = useState(false);
   const [insightsError, setInsightsError] = useState<string | null>(null);
 
+  // Road Network state
+  const [useRoadNetwork, setUseRoadNetwork] = useState(false);
+  const [roadDistricts, setRoadDistricts] = useState<RoadDistrict[]>([]);
+  const [selectedRoadDistrict, setSelectedRoadDistrict] = useState<string | null>(null);
+  const [roadDistrictBoundary, setRoadDistrictBoundary] = useState<GeoJSONFeature | null>(null);
+  const [roadEdges, setRoadEdges] = useState<GeoJSONFeatureCollection | null>(null);
+  const [isLoadingRoadNetwork, setIsLoadingRoadNetwork] = useState(false);
+  const [roadNetworkStatus, setRoadNetworkStatus] = useState<string>('');
+
   // Fetch states list and India boundary on mount
   useEffect(() => {
     boundariesApi.getStatesList()
@@ -55,6 +64,11 @@ export default function Home() {
     boundariesApi.getIndiaBoundary()
       .then(setIndiaBoundary)
       .catch((err) => console.error('Failed to load India boundary', err));
+
+    // Fetch available road network districts
+    roadNetworkApi.getAvailableDistricts()
+      .then(setRoadDistricts)
+      .catch((err) => console.error('Failed to load road districts', err));
   }, []);
 
   // Fetch state boundary when selectedState changes
@@ -211,8 +225,17 @@ export default function Home() {
 
   // Compute Voronoi diagram
   const computeVoronoi = useCallback(async () => {
-    if (facilities.length < 3) {
-      setError('Need at least 3 facilities to compute Voronoi diagram');
+    // Road network mode needs fewer facilities
+    const minFacilities = useRoadNetwork ? 2 : 3;
+
+    if (facilities.length < minFacilities) {
+      setError(`Need at least ${minFacilities} facilities to compute Voronoi diagram`);
+      return;
+    }
+
+    // Road network mode requires district selection
+    if (useRoadNetwork && !selectedRoadDistrict) {
+      setError('Please select a district for road network Voronoi');
       return;
     }
 
@@ -223,14 +246,18 @@ export default function Home() {
       const result = await voronoiApi.compute({
         facilities,
         clip_to_india: true,
-        include_population: true,
-        state_filter: selectedState,
+        include_population: !useRoadNetwork, // Skip population for road mode (simpler)
+        state_filter: useRoadNetwork ? null : selectedState,
+        use_road_network: useRoadNetwork,
+        district_filter: useRoadNetwork ? selectedRoadDistrict : null,
       });
       setVoronoiData(result);
       setApiStatus('online');
 
-      // Also fetch insights after computing Voronoi
-      fetchInsights();
+      // Only fetch insights for non-road-network mode
+      if (!useRoadNetwork) {
+        fetchInsights();
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to compute Voronoi';
       setError(message);
@@ -240,7 +267,7 @@ export default function Home() {
     } finally {
       setIsComputing(false);
     }
-  }, [facilities, selectedState, fetchInsights]);
+  }, [facilities, selectedState, fetchInsights, useRoadNetwork, selectedRoadDistrict]);
 
   // Handle map click for adding/removing facilities
   const handleMapClick = useCallback(async (lat: number, lng: number) => {
@@ -369,6 +396,114 @@ export default function Home() {
                     <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${showVoronoi ? 'translate-x-0.5' : '-translate-x-5.5'
                       }`} />
                   </button>
+                </div>
+
+                {/* Road Network Mode Toggle */}
+                <div className="pt-3 border-t border-gray-100">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <label className="text-gray-700">Road Network Mode</label>
+                      <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">Beta</span>
+                    </div>
+                    <button
+                      onClick={() => {
+                        const newValue = !useRoadNetwork;
+                        setUseRoadNetwork(newValue);
+                        setVoronoiData(null);
+
+                        if (newValue && roadDistricts.length > 0) {
+                          const districtId = selectedRoadDistrict || roadDistricts[0].id;
+                          if (!selectedRoadDistrict) {
+                            setSelectedRoadDistrict(districtId);
+                          }
+
+                          // Load road edges for visualization with progress messages
+                          setIsLoadingRoadNetwork(true);
+                          setRoadNetworkStatus('Connecting to OpenStreetMap...');
+
+                          // First get boundary (quick)
+                          roadNetworkApi.getDistrictBoundary(districtId)
+                            .then(boundary => {
+                              setRoadDistrictBoundary(boundary);
+                              setRoadNetworkStatus('Downloading road network (this may take 1-2 minutes)...');
+                              // Then get road edges (slow - triggers download if not cached)
+                              return roadNetworkApi.getRoadEdges(districtId);
+                            })
+                            .then(edges => {
+                              setRoadEdges(edges);
+                              setRoadNetworkStatus('Road network loaded!');
+                              // Fly to Delhi when road mode is enabled
+                              setMapCenter({ lat: 28.6139, lng: 77.2090, zoom: 10 });
+                              setTimeout(() => setRoadNetworkStatus(''), 2000);
+                            })
+                            .catch(err => {
+                              console.error(err);
+                              setRoadNetworkStatus('Failed to load road network');
+                              setTimeout(() => setRoadNetworkStatus(''), 3000);
+                            })
+                            .finally(() => setIsLoadingRoadNetwork(false));
+                        } else {
+                          setRoadEdges(null);
+                          setRoadDistrictBoundary(null);
+                        }
+                      }}
+                      disabled={isLoadingRoadNetwork}
+                      className={`relative w-12 h-6 rounded-full transition-colors ${useRoadNetwork ? 'bg-amber-500' : 'bg-gray-300'} ${isLoadingRoadNetwork ? 'opacity-50' : ''}`}
+                    >
+                      <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${useRoadNetwork ? 'translate-x-0.5' : '-translate-x-5.5'}`} />
+                    </button>
+                  </div>
+
+                  {useRoadNetwork && (
+                    <div className="mt-3 space-y-2">
+                      <p className="text-xs text-gray-500">
+                        Computes Voronoi based on road distances (not straight-line). Only available for Delhi.
+                      </p>
+                      <div className="flex items-center justify-between">
+                        <label className="text-gray-700 text-sm">District</label>
+                        <select
+                          value={selectedRoadDistrict ?? ''}
+                          onChange={(e) => {
+                            setSelectedRoadDistrict(e.target.value || null);
+                            setVoronoiData(null);
+                            // Load boundary when district selected
+                            if (e.target.value) {
+                              setIsLoadingRoadNetwork(true);
+                              roadNetworkApi.getDistrictBoundary(e.target.value)
+                                .then(setRoadDistrictBoundary)
+                                .catch(console.error)
+                                .finally(() => setIsLoadingRoadNetwork(false));
+                            } else {
+                              setRoadDistrictBoundary(null);
+                            }
+                          }}
+                          className="bg-gray-50 border border-gray-300 text-gray-700 text-sm rounded-lg px-3 py-1.5 focus:ring-amber-500 focus:border-amber-500"
+                        >
+                          {roadDistricts.map(d => (
+                            <option key={d.id} value={d.id}>{d.name}</option>
+                          ))}
+                        </select>
+                      </div>
+                      {(isLoadingRoadNetwork || roadNetworkStatus) && (
+                        <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 flex items-center gap-3">
+                          {isLoadingRoadNetwork && (
+                            <svg className="w-5 h-5 text-amber-600 animate-spin" fill="none" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                          )}
+                          {!isLoadingRoadNetwork && roadNetworkStatus === 'Road network loaded!' && (
+                            <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                            </svg>
+                          )}
+                          <span className={`text-sm ${roadNetworkStatus.includes('Failed') ? 'text-red-600' : roadNetworkStatus.includes('loaded') ? 'text-green-700' : 'text-amber-700'}`}>
+                            {roadNetworkStatus || 'Loading...'}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex items-center justify-between">
@@ -539,6 +674,7 @@ export default function Home() {
                   voronoiData={showVoronoi ? voronoiData ?? undefined : undefined}
                   districtData={boundaryLevel === 'state' ? stateData : boundaryLevel === 'district' ? districtData : undefined}
                   showDistricts={boundaryLevel !== 'none'}
+                  roadEdges={useRoadNetwork ? roadEdges ?? undefined : undefined}
                   flyTo={mapCenter}
                   onMapClick={handleMapClick}
                   editMode={editMode}

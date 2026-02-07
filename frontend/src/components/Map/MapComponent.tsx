@@ -27,6 +27,7 @@ interface MapProps {
     facilities?: Facility[];
     voronoiData?: GeoJSONFeatureCollection;
     districtData?: GeoJSONFeatureCollection;
+    roadEdges?: GeoJSONFeatureCollection;
     showDistricts?: boolean;
     center?: [number, number];
     zoom?: number;
@@ -66,6 +67,7 @@ export default function MapComponent({
     facilities = [],
     voronoiData,
     districtData,
+    roadEdges,
     showDistricts = false,
     center = [20.5937, 78.9629], // Center of India
     zoom = 5,
@@ -81,6 +83,7 @@ export default function MapComponent({
     const voronoiLayerRef = useRef<L.LayerGroup | null>(null);
     const districtsLayerRef = useRef<L.LayerGroup | null>(null);
     const enclosingCirclesLayerRef = useRef<L.LayerGroup | null>(null);
+    const roadEdgesLayerRef = useRef<L.LayerGroup | null>(null);
 
     // Initialize map
     useEffect(() => {
@@ -95,9 +98,10 @@ export default function MapComponent({
         }).addTo(map);
 
         // Create layer groups
-        districtsLayerRef.current = L.layerGroup().addTo(map);  // Bottom layer
-        voronoiLayerRef.current = L.layerGroup().addTo(map);    // Middle layer
-        markersLayerRef.current = L.layerGroup().addTo(map);    // Facility markers
+        roadEdgesLayerRef.current = L.layerGroup().addTo(map);     // Road network (bottom)
+        districtsLayerRef.current = L.layerGroup().addTo(map);     // District borders
+        voronoiLayerRef.current = L.layerGroup().addTo(map);       // Voronoi polygons
+        markersLayerRef.current = L.layerGroup().addTo(map);       // Facility markers
         enclosingCirclesLayerRef.current = L.layerGroup().addTo(map); // Top layer for circles
 
         mapRef.current = map;
@@ -217,6 +221,70 @@ export default function MapComponent({
             });
         }
     }, [showDistricts, districtData, editMode]);
+
+    // Update Road Edges layer (for road network visualization)
+    useEffect(() => {
+        if (!roadEdgesLayerRef.current) return;
+
+        roadEdgesLayerRef.current.clearLayers();
+
+        if (roadEdges && roadEdges.features) {
+            // Color roads by type
+            const getRoadColor = (highway: string): string => {
+                switch (highway) {
+                    case 'motorway':
+                    case 'motorway_link':
+                        return '#E74C3C'; // Red for motorways
+                    case 'trunk':
+                    case 'trunk_link':
+                        return '#E67E22'; // Orange for trunk roads
+                    case 'primary':
+                    case 'primary_link':
+                        return '#F1C40F'; // Yellow for primary
+                    case 'secondary':
+                    case 'secondary_link':
+                        return '#3498DB'; // Blue for secondary
+                    case 'tertiary':
+                        return '#9B59B6'; // Purple for tertiary
+                    default:
+                        return '#95A5A6'; // Gray for others
+                }
+            };
+
+            const getRoadWeight = (highway: string): number => {
+                switch (highway) {
+                    case 'motorway':
+                    case 'motorway_link':
+                        return 4;
+                    case 'trunk':
+                    case 'trunk_link':
+                        return 3.5;
+                    case 'primary':
+                    case 'primary_link':
+                        return 3;
+                    case 'secondary':
+                    case 'secondary_link':
+                        return 2.5;
+                    default:
+                        return 2;
+                }
+            };
+
+            roadEdges.features.forEach((feature) => {
+                if (feature.geometry && (feature.geometry.type === 'LineString' || feature.geometry.type === 'MultiLineString')) {
+                    const highway = feature.properties?.highway as string || 'road';
+
+                    L.geoJSON(feature as any, {
+                        style: {
+                            color: getRoadColor(highway),
+                            weight: getRoadWeight(highway),
+                            opacity: 0.7,
+                        }
+                    }).addTo(roadEdgesLayerRef.current!);
+                }
+            });
+        }
+    }, [roadEdges]);
 
     // Update map center/zoom
     useEffect(() => {

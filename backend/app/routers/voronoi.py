@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from app.services.voronoi_engine import VoronoiEngine
 from app.services.population_calc import PopulationService
 from app.services.analytics_service import AnalyticsService
+from app.services.road_network_service import RoadNetworkService
 
 router = APIRouter()
 
@@ -27,6 +28,8 @@ class VoronoiRequest(BaseModel):
     clip_to_india: bool = True
     include_population: bool = False
     state_filter: Optional[str] = None  # If set, clip to this state instead of all India
+    use_road_network: bool = False  # If True, compute Voronoi based on road distance
+    district_filter: Optional[str] = None  # Required when use_road_network is True
 
 
 class VoronoiResponse(BaseModel):
@@ -40,14 +43,52 @@ async def compute_voronoi(request: VoronoiRequest):
     """
     Compute Voronoi diagram for given facility coordinates.
     Returns GeoJSON FeatureCollection of Voronoi polygons.
+    
+    If use_road_network is True, computes Voronoi based on road network distances
+    instead of Euclidean distances. Requires district_filter to be set.
     """
-    if len(request.facilities) < 3:
+    # Road network mode has different minimum (2 facilities)
+    min_facilities = 2 if request.use_road_network else 3
+    
+    if len(request.facilities) < min_facilities:
         raise HTTPException(
             status_code=400,
-            detail="At least 3 facilities are required to compute Voronoi diagram"
+            detail=f"At least {min_facilities} facilities are required to compute Voronoi diagram"
         )
     
     try:
+        # Road Network Voronoi mode
+        if request.use_road_network:
+            if not request.district_filter:
+                raise HTTPException(
+                    status_code=400,
+                    detail="district_filter is required when use_road_network is True"
+                )
+            
+            road_service = RoadNetworkService()
+            
+            # Filter facilities to only those within the district
+            facilities_dict = [
+                {"id": f.id or str(i), "name": f.name, "lat": f.lat, "lng": f.lng, "type": f.type}
+                for i, f in enumerate(request.facilities)
+            ]
+            filtered_facilities = road_service.filter_facilities_in_district(
+                facilities_dict, request.district_filter
+            )
+            
+            if len(filtered_facilities) < 2:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"At least 2 facilities within {request.district_filter} are required for road network Voronoi"
+                )
+            
+            geojson = road_service.compute_road_voronoi(
+                filtered_facilities, request.district_filter
+            )
+            
+            return VoronoiResponse(**geojson)
+        
+        # Standard Euclidean Voronoi mode
         engine = VoronoiEngine()
         
         # Convert facilities to coordinate list
@@ -81,7 +122,11 @@ async def compute_voronoi(request: VoronoiRequest):
         
         return VoronoiResponse(**geojson)
     
+    except HTTPException:
+        raise
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -211,3 +256,113 @@ async def find_nearest_facility(request: FindNearestRequest):
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============== Road Network Endpoints ==============
+
+@router.get("/road-districts")
+async def get_available_road_districts():
+    """
+    Get list of districts that have available road network data.
+    These are the only districts where road network Voronoi can be computed.
+    """
+    try:
+        road_service = RoadNetworkService()
+        return road_service.get_available_districts()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/road-districts/{district_id}/boundary")
+async def get_road_district_boundary(district_id: str):
+    """
+    Get the boundary GeoJSON for a road network district.
+    Used to display the district boundary on the map.
+    """
+    try:
+        road_service = RoadNetworkService()
+        boundary = road_service.get_district_boundary(district_id)
+        
+        if not boundary:
+            raise HTTPException(
+                status_code=404,
+                detail=f"District '{district_id}' not found"
+            )
+        
+        return boundary
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/road-districts/{district_id}/initialize")
+async def initialize_road_network(district_id: str):
+    """
+    Initialize (download and cache) the road network for a district.
+    This can be called proactively to avoid delays during Voronoi computation.
+    
+    Returns information about the loaded road network.
+    """
+    try:
+        road_service = RoadNetworkService()
+        G = road_service.load_or_download_graph(district_id)
+        
+        return {
+            "district_id": district_id,
+            "status": "ready",
+            "nodes": len(G.nodes),
+            "edges": len(G.edges)
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/road-districts/{district_id}/edges")
+async def get_road_edges(district_id: str, simplify: bool = True):
+    """
+    Get road network edges as GeoJSON for visualization on the map.
+    
+    Args:
+        district_id: ID of the district
+        simplify: If True, only return major roads to reduce data size (default: True)
+        
+    Returns:
+        GeoJSON FeatureCollection of road edges as LineStrings
+    """
+    import math
+    
+    def sanitize_value(v):
+        """Replace NaN/Infinity values with None or 0."""
+        if isinstance(v, float):
+            if math.isnan(v) or math.isinf(v):
+                return 0.0
+        return v
+    
+    def sanitize_geojson(obj):
+        """Recursively sanitize all float values in a nested structure."""
+        if isinstance(obj, dict):
+            return {k: sanitize_geojson(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [sanitize_geojson(item) for item in obj]
+        elif isinstance(obj, tuple):
+            return tuple(sanitize_geojson(item) for item in obj)
+        elif isinstance(obj, float):
+            return sanitize_value(obj)
+        return obj
+    
+    try:
+        road_service = RoadNetworkService()
+        result = road_service.get_road_edges_geojson(district_id, simplify=simplify)
+        # Sanitize the result to remove any NaN/Infinity values
+        return sanitize_geojson(result)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+

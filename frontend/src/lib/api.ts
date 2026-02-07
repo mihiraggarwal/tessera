@@ -24,6 +24,8 @@ export interface VoronoiRequest {
     clip_to_india: boolean;
     include_population?: boolean;
     state_filter?: string | null;  // If set, clip to this state instead of all India
+    use_road_network?: boolean;  // If true, compute Voronoi based on road distance
+    district_filter?: string | null;  // Required when use_road_network is true
 }
 
 export interface PopulationBreakdown {
@@ -130,6 +132,41 @@ export const voronoiApi = {
 
     findNearest: async (request: FindNearestRequest): Promise<FindNearestResponse> => {
         const response = await api.post('/api/voronoi/find-nearest', request);
+        return response.data;
+    },
+};
+
+// Road Network API
+export interface RoadDistrict {
+    id: string;
+    name: string;
+}
+
+export interface RoadNetworkInfo {
+    district_id: string;
+    status: string;
+    nodes: number;
+    edges: number;
+}
+
+export const roadNetworkApi = {
+    getAvailableDistricts: async (): Promise<RoadDistrict[]> => {
+        const response = await api.get('/api/voronoi/road-districts');
+        return response.data;
+    },
+
+    getDistrictBoundary: async (districtId: string): Promise<GeoJSONFeature> => {
+        const response = await api.get(`/api/voronoi/road-districts/${encodeURIComponent(districtId)}/boundary`);
+        return response.data;
+    },
+
+    initializeRoadNetwork: async (districtId: string): Promise<RoadNetworkInfo> => {
+        const response = await api.post(`/api/voronoi/road-districts/${encodeURIComponent(districtId)}/initialize`);
+        return response.data;
+    },
+
+    getRoadEdges: async (districtId: string, simplify: boolean = true): Promise<GeoJSONFeatureCollection> => {
+        const response = await api.get(`/api/voronoi/road-districts/${encodeURIComponent(districtId)}/edges?simplify=${simplify}`);
         return response.data;
     },
 };
