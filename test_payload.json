@@ -1,0 +1,30 @@
+{
+    "facilities": [
+        {
+            "id": "1",
+            "name": "Ahmedabad",
+            "lat": 23.0225,
+            "lng": 72.5714
+        },
+        {
+            "id": "2",
+            "name": "Surat",
+            "lat": 21.1702,
+            "lng": 72.8311
+        },
+        {
+            "id": "3",
+            "name": "Vadodara",
+            "lat": 22.3072,
+            "lng": 73.1812
+        },
+        {
+            "id": "4",
+            "name": "Rajkot",
+            "lat": 22.3039,
+            "lng": 70.8022
+        }
+    ],
+    "state_filter": "Gujarat",
+    "grid_density": 30
+}

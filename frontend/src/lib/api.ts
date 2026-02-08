@@ -264,6 +264,71 @@ export const voronoiApi = {
     return response.data;
   },
 
+  // Dominating-set road Voronoi (more efficient batched algorithm)
+  computeDominatingRoad: async (
+    facilities: Facility[],
+    stateFilter?: string | null,
+    gridDensity: number = 40,
+  ): Promise<GeoJSONFeatureCollection> => {
+    const response = await api.post(
+      "/api/voronoi/compute-dominating-road",
+      {
+        facilities,
+        clip_to_india: true,
+        state_filter: stateFilter,
+        grid_density: gridDensity,
+        batch_size: 100,
+      },
+      {
+        timeout: 300000, // 5 minutes for route computation
+      },
+    );
+    return response.data;
+  },
+
+  // Edge-adjustment road Voronoi (smoother edges)
+  computeEdgeAdjustRoad: async (
+    facilities: Facility[],
+    stateFilter?: string | null,
+    samplesPerEdge: number = 10,
+  ): Promise<GeoJSONFeatureCollection> => {
+    const response = await api.post(
+      "/api/voronoi/compute-edge-adjust-road",
+      {
+        facilities,
+        clip_to_india: true,
+        state_filter: stateFilter,
+        samples_per_edge: samplesPerEdge,
+      },
+      {
+        timeout: 300000,
+      },
+    );
+    return response.data;
+  },
+
+  // Weighted (additive) road Voronoi
+  computeWeightedRoad: async (
+    facilities: Facility[],
+    stateFilter?: string | null,
+    penaltyScale: number = 1.0,
+  ): Promise<GeoJSONFeatureCollection> => {
+    const response = await api.post(
+      "/api/voronoi/compute-weighted-road",
+      {
+        facilities,
+        clip_to_india: true,
+        state_filter: stateFilter,
+        penalty_scale: penaltyScale,
+        num_neighbor_samples: 5,
+      },
+      {
+        timeout: 300000,
+      },
+    );
+    return response.data;
+  },
+
   compare: async (
     request: RouteVoronoiCompareRequest,
   ): Promise<RouteVoronoiCompareResponse> => {
