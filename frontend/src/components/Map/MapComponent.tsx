@@ -141,11 +141,14 @@ export default function MapComponent({
     };
   }, []);
 
-  // Update facilities markers
+  // Update facilities markers (hide when heatmap is active)
   useEffect(() => {
     if (!markersLayerRef.current) return;
 
     markersLayerRef.current.clearLayers();
+
+    // Don't show facility markers when a heatmap is displayed
+    if (heatmapData && heatmapData.length > 0) return;
 
     facilities.forEach((facility) => {
       const marker = L.circleMarker([facility.lat, facility.lng], {
@@ -170,13 +173,16 @@ export default function MapComponent({
 
       marker.addTo(markersLayerRef.current!);
     });
-  }, [facilities, editMode]);
+  }, [facilities, editMode, heatmapData]);
 
-  // Update Voronoi layer
+  // Update Voronoi layer (hide when heatmap is active)
   useEffect(() => {
     if (!voronoiLayerRef.current) return;
 
     voronoiLayerRef.current.clearLayers();
+
+    // Don't show Voronoi polygons when a heatmap is displayed
+    if (heatmapData && heatmapData.length > 0) return;
 
     if (voronoiData && voronoiData.features) {
       voronoiData.features.forEach((feature, index) => {
@@ -238,7 +244,7 @@ export default function MapComponent({
         }
       });
     }
-  }, [voronoiData, editMode]);
+  }, [voronoiData, editMode, heatmapData]);
 
   // Update Districts layer
   useEffect(() => {
