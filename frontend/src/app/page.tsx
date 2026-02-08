@@ -73,7 +73,7 @@ export default function Home() {
   const [insightsError, setInsightsError] = useState<string | null>(null);
 
   // Route Voronoi state
-  const [useRouteDistance, setUseRouteDistance] = useState(false);
+  const [roadMode, setRoadMode] = useState<"euclidean" | "grid" | "edge" | "weighted">("euclidean");
   const [routingHealth, setRoutingHealth] =
     useState<RoutingHealthResponse | null>(null);
   const [isCheckingRouting, setIsCheckingRouting] = useState(false);
@@ -290,18 +290,27 @@ export default function Home() {
     try {
       let result: GeoJSONFeatureCollection;
 
-      if (useRouteDistance) {
-        // Use route-based Voronoi
-        result = await voronoiApi.computeRoute({
+      if (roadMode === "grid") {
+        // Grid-based road Voronoi (dominating-set approach)
+        result = await voronoiApi.computeDominatingRoad(
           facilities,
-          clip_to_india: true,
-          state_filter: selectedState,
-          config: {
-            grid_density: 30, // Fewer points for faster computation
-            base_k: 5,
-            adaptive_k: true,
-          },
-        });
+          selectedState,
+          40, // grid density
+        );
+      } else if (roadMode === "edge") {
+        // Edge-adjustment road Voronoi (smoother edges)
+        result = await voronoiApi.computeEdgeAdjustRoad(
+          facilities,
+          selectedState,
+          10, // samples per edge
+        );
+      } else if (roadMode === "weighted") {
+        // Additive weighted road Voronoi
+        result = await voronoiApi.computeWeightedRoad(
+          facilities,
+          selectedState,
+          1.0, // penalty scale
+        );
       } else {
         // Use Euclidean Voronoi
         result = await voronoiApi.compute({
@@ -316,7 +325,7 @@ export default function Home() {
       setApiStatus("online");
 
       // Also fetch insights after computing Voronoi (only for Euclidean)
-      if (!useRouteDistance) {
+      if (roadMode === "euclidean") {
         fetchInsights();
       }
     } catch (err) {
@@ -329,7 +338,7 @@ export default function Home() {
     } finally {
       setIsComputing(false);
     }
-  }, [facilities, selectedState, fetchInsights, useRouteDistance]);
+  }, [facilities, selectedState, fetchInsights, roadMode]);
 
   // Handle map click for adding/removing facilities
   const handleMapClick = useCallback(
@@ -435,22 +444,20 @@ export default function Home() {
 
             <div className="flex items-center gap-3">
               <div
-                className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm ${
-                  apiStatus === "online"
-                    ? "bg-green-100 text-green-700"
-                    : apiStatus === "offline"
-                      ? "bg-red-100 text-red-700"
-                      : "bg-gray-100 text-gray-600"
-                }`}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm ${apiStatus === "online"
+                  ? "bg-green-100 text-green-700"
+                  : apiStatus === "offline"
+                    ? "bg-red-100 text-red-700"
+                    : "bg-gray-100 text-gray-600"
+                  }`}
               >
                 <span
-                  className={`w-2 h-2 rounded-full ${
-                    apiStatus === "online"
-                      ? "bg-green-500"
-                      : apiStatus === "offline"
-                        ? "bg-red-500"
-                        : "bg-gray-400"
-                  }`}
+                  className={`w-2 h-2 rounded-full ${apiStatus === "online"
+                    ? "bg-green-500"
+                    : apiStatus === "offline"
+                      ? "bg-red-500"
+                      : "bg-gray-400"
+                    }`}
                 />
                 {apiStatus === "online"
                   ? "API Connected"
@@ -496,14 +503,12 @@ export default function Home() {
                   <label className="text-gray-700">Show Voronoi</label>
                   <button
                     onClick={() => setShowVoronoi(!showVoronoi)}
-                    className={`relative w-12 h-6 rounded-full transition-colors ${
-                      showVoronoi ? "bg-blue-500" : "bg-gray-300"
-                    }`}
+                    className={`relative w-12 h-6 rounded-full transition-colors ${showVoronoi ? "bg-blue-500" : "bg-gray-300"
+                      }`}
                   >
                     <span
-                      className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
-                        showVoronoi ? "translate-x-0.5" : "-translate-x-5.5"
-                      }`}
+                      className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${showVoronoi ? "translate-x-0.5" : "-translate-x-5.5"
+                        }`}
                     />
                   </button>
                 </div>
@@ -511,14 +516,13 @@ export default function Home() {
                 {/* Route Distance Mode Toggle */}
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <label className="text-gray-700">Route Distance</label>
+                    <label className="text-gray-700">Distance Mode</label>
                     {routingHealth && (
                       <span
-                        className={`w-2 h-2 rounded-full ${
-                          routingHealth.status === "healthy"
-                            ? "bg-green-500"
-                            : "bg-red-500"
-                        }`}
+                        className={`w-2 h-2 rounded-full ${routingHealth.status === "healthy"
+                          ? "bg-green-500"
+                          : "bg-red-500"
+                          }`}
                         title={
                           routingHealth.status === "healthy"
                             ? "OSRM routing available"
@@ -527,29 +531,21 @@ export default function Home() {
                       />
                     )}
                   </div>
-                  <button
-                    onClick={() => setUseRouteDistance(!useRouteDistance)}
-                    disabled={routingHealth?.status !== "healthy"}
-                    className={`relative w-12 h-6 rounded-full transition-colors ${
-                      useRouteDistance
-                        ? "bg-purple-500"
-                        : routingHealth?.status === "healthy"
-                          ? "bg-gray-300"
-                          : "bg-gray-200 cursor-not-allowed"
-                    }`}
+                  <select
+                    value={roadMode}
+                    onChange={(e) => setRoadMode(e.target.value as "euclidean" | "grid" | "edge" | "weighted")}
+                    disabled={routingHealth?.status !== "healthy" && roadMode !== "euclidean"}
+                    className="bg-gray-50 border border-gray-300 text-gray-700 text-sm rounded-lg px-3 py-1.5 focus:ring-blue-500 focus:border-blue-500 max-w-[140px]"
                   >
-                    <span
-                      className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
-                        useRouteDistance
-                          ? "translate-x-0.5"
-                          : "-translate-x-5.5"
-                      }`}
-                    />
-                  </button>
+                    <option value="euclidean">Euclidean</option>
+                    <option value="weighted" disabled={routingHealth?.status !== "healthy"}>Road (Weighted)</option>
+                    <option value="grid" disabled={routingHealth?.status !== "healthy"}>Road (Grid)</option>
+                    <option value="edge" disabled={routingHealth?.status !== "healthy"}>Road (Edge)</option>
+                  </select>
                 </div>
-                {useRouteDistance && (
+                {roadMode !== "euclidean" && (
                   <p className="text-xs text-purple-600 -mt-2">
-                    ⚠️ Uses road network. Slower but more accurate.
+                    ⚠️ Uses OSRM road network. Slower but accounts for actual driving distances.
                   </p>
                 )}
 
@@ -618,11 +614,10 @@ export default function Home() {
                       onClick={() =>
                         setEditMode(editMode === "add" ? null : "add")
                       }
-                      className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-1 ${
-                        editMode === "add"
-                          ? "bg-green-500 text-white"
-                          : "bg-gray-100 text-gray-700 hover:bg-green-100"
-                      }`}
+                      className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-1 ${editMode === "add"
+                        ? "bg-green-500 text-white"
+                        : "bg-gray-100 text-gray-700 hover:bg-green-100"
+                        }`}
                     >
                       <svg
                         className="w-4 h-4"
@@ -643,11 +638,10 @@ export default function Home() {
                       onClick={() =>
                         setEditMode(editMode === "remove" ? null : "remove")
                       }
-                      className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-1 ${
-                        editMode === "remove"
-                          ? "bg-red-500 text-white"
-                          : "bg-gray-100 text-gray-700 hover:bg-red-100"
-                      }`}
+                      className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-1 ${editMode === "remove"
+                        ? "bg-red-500 text-white"
+                        : "bg-gray-100 text-gray-700 hover:bg-red-100"
+                        }`}
                     >
                       <svg
                         className="w-4 h-4"
@@ -697,11 +691,10 @@ export default function Home() {
                 <button
                   onClick={computeVoronoi}
                   disabled={facilities.length < 3 || isComputing}
-                  className={`w-full py-3 px-4 rounded-xl font-semibold text-white transition-all ${
-                    facilities.length >= 3 && !isComputing
-                      ? "bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 shadow-lg shadow-blue-500/25"
-                      : "bg-gray-300 cursor-not-allowed"
-                  }`}
+                  className={`w-full py-3 px-4 rounded-xl font-semibold text-white transition-all ${facilities.length >= 3 && !isComputing
+                    ? "bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 shadow-lg shadow-blue-500/25"
+                    : "bg-gray-300 cursor-not-allowed"
+                    }`}
                 >
                   {isComputing ? (
                     <span className="flex items-center justify-center gap-2">
@@ -837,9 +830,9 @@ export default function Home() {
                   enclosingCircles={
                     facilityInsights
                       ? {
-                          mec: facilityInsights.minimum_enclosing_circle,
-                          largestEmpty: facilityInsights.largest_empty_circle,
-                        }
+                        mec: facilityInsights.minimum_enclosing_circle,
+                        largestEmpty: facilityInsights.largest_empty_circle,
+                      }
                       : undefined
                   }
                 />
@@ -898,290 +891,287 @@ export default function Home() {
               facilityInsights ||
               isLoadingInsights ||
               insightsError) && (
-              <div className="mt-8 bg-white rounded-3xl shadow-xl border border-gray-200 overflow-hidden">
-                {/* Panel Header */}
-                <div className="bg-gradient-to-r from-gray-50 to-white px-6 py-4 border-b border-gray-100 flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <div className="w-8 h-8 rounded-lg bg-indigo-100 flex items-center justify-center">
-                      <svg
-                        className="w-5 h-5 text-indigo-600"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
-                        />
-                      </svg>
-                    </div>
-                    <h3 className="text-lg font-bold text-gray-900 tracking-tight">
-                      Facility Analytics & Strategic Insights
-                    </h3>
-                  </div>
-                  {isLoadingInsights && (
-                    <div className="flex items-center gap-2 text-indigo-600">
-                      <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
-                        <circle
-                          className="opacity-25"
-                          cx="12"
-                          cy="12"
-                          r="10"
-                          stroke="currentColor"
-                          strokeWidth="4"
+                <div className="mt-8 bg-white rounded-3xl shadow-xl border border-gray-200 overflow-hidden">
+                  {/* Panel Header */}
+                  <div className="bg-gradient-to-r from-gray-50 to-white px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-lg bg-indigo-100 flex items-center justify-center">
+                        <svg
+                          className="w-5 h-5 text-indigo-600"
                           fill="none"
-                        />
-                        <path
-                          className="opacity-75"
-                          fill="currentColor"
-                          d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                        />
-                      </svg>
-                      <span className="text-xs font-semibold animate-pulse">
-                        Analyzing...
-                      </span>
-                    </div>
-                  )}
-                </div>
-
-                <div className="p-6">
-                  {/* Error State */}
-                  {insightsError && (
-                    <div className="mb-6 p-4 bg-red-50 border border-red-100 rounded-2xl flex items-center gap-3">
-                      <span className="text-2xl">⚠️</span>
-                      <div>
-                        <p className="text-sm font-bold text-red-800">
-                          Advanced analysis unavailable
-                        </p>
-                        <p className="text-xs text-red-600">{insightsError}</p>
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
+                          />
+                        </svg>
                       </div>
+                      <h3 className="text-lg font-bold text-gray-900 tracking-tight">
+                        Facility Analytics & Strategic Insights
+                      </h3>
                     </div>
-                  )}
-
-                  {/* AI Recommendations - Prominent at the top */}
-                  {(facilityInsights?.recommendations?.length ?? 0) > 0 && (
-                    <div className="mb-8 p-5 bg-gradient-to-br from-indigo-50 via-purple-50 to-blue-50 rounded-2xl border border-indigo-100 shadow-sm relative overflow-hidden">
-                      <div className="absolute top-0 right-0 p-4 opacity-10">
-                        <span className="text-6xl text-indigo-600">✨</span>
+                    {isLoadingInsights && (
+                      <div className="flex items-center gap-2 text-indigo-600">
+                        <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                          <circle
+                            className="opacity-25"
+                            cx="12"
+                            cy="12"
+                            r="10"
+                            stroke="currentColor"
+                            strokeWidth="4"
+                            fill="none"
+                          />
+                          <path
+                            className="opacity-75"
+                            fill="currentColor"
+                            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                          />
+                        </svg>
+                        <span className="text-xs font-semibold animate-pulse">
+                          Analyzing...
+                        </span>
                       </div>
-                      <h4 className="text-sm font-bold text-indigo-900 mb-4 flex items-center gap-2">
-                        Strategic Recommendations
-                      </h4>
-                      <div className="grid grid-cols-1 gap-3 relative z-10">
-                        {facilityInsights?.recommendations?.map((rec, i) => (
-                          <div
-                            key={i}
-                            className={`p-4 rounded-xl border flex gap-4 bg-white/80 backdrop-blur-sm shadow-sm transition-all hover:shadow-md ${
-                              rec.priority === "HIGH"
+                    )}
+                  </div>
+
+                  <div className="p-6">
+                    {/* Error State */}
+                    {insightsError && (
+                      <div className="mb-6 p-4 bg-red-50 border border-red-100 rounded-2xl flex items-center gap-3">
+                        <span className="text-2xl">⚠️</span>
+                        <div>
+                          <p className="text-sm font-bold text-red-800">
+                            Advanced analysis unavailable
+                          </p>
+                          <p className="text-xs text-red-600">{insightsError}</p>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* AI Recommendations - Prominent at the top */}
+                    {(facilityInsights?.recommendations?.length ?? 0) > 0 && (
+                      <div className="mb-8 p-5 bg-gradient-to-br from-indigo-50 via-purple-50 to-blue-50 rounded-2xl border border-indigo-100 shadow-sm relative overflow-hidden">
+                        <div className="absolute top-0 right-0 p-4 opacity-10">
+                          <span className="text-6xl text-indigo-600">✨</span>
+                        </div>
+                        <h4 className="text-sm font-bold text-indigo-900 mb-4 flex items-center gap-2">
+                          Strategic Recommendations
+                        </h4>
+                        <div className="grid grid-cols-1 gap-3 relative z-10">
+                          {facilityInsights?.recommendations?.map((rec, i) => (
+                            <div
+                              key={i}
+                              className={`p-4 rounded-xl border flex gap-4 bg-white/80 backdrop-blur-sm shadow-sm transition-all hover:shadow-md ${rec.priority === "HIGH"
                                 ? "border-red-100"
                                 : "border-indigo-100"
-                            }`}
-                          >
-                            <div
-                              className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${
-                                rec.priority === "HIGH"
+                                }`}
+                            >
+                              <div
+                                className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${rec.priority === "HIGH"
                                   ? "bg-red-50 text-red-600"
                                   : "bg-indigo-50 text-indigo-600"
-                              }`}
-                            >
-                              <span className="text-xl">
-                                {rec.type === "CRITICAL_GAP"
-                                  ? "🚩"
-                                  : rec.type === "OVERBURDENED"
-                                    ? "⚖️"
-                                    : "💡"}
-                              </span>
-                            </div>
-                            <div className="flex-1">
-                              <div className="flex items-center justify-between mb-1">
-                                <span
-                                  className={`text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full ${
-                                    rec.priority === "HIGH"
+                                  }`}
+                              >
+                                <span className="text-xl">
+                                  {rec.type === "CRITICAL_GAP"
+                                    ? "🚩"
+                                    : rec.type === "OVERBURDENED"
+                                      ? "⚖️"
+                                      : "💡"}
+                                </span>
+                              </div>
+                              <div className="flex-1">
+                                <div className="flex items-center justify-between mb-1">
+                                  <span
+                                    className={`text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full ${rec.priority === "HIGH"
                                       ? "bg-red-100 text-red-700"
                                       : "bg-indigo-100 text-indigo-700"
-                                  }`}
-                                >
-                                  {rec.priority} PRIORITY
-                                </span>
-                                {rec.coords && (
-                                  <button
-                                    onClick={() =>
-                                      setMapCenter({
-                                        lat: rec.coords![1],
-                                        lng: rec.coords![0],
-                                        zoom: 10,
-                                      })
-                                    }
-                                    className="text-xs font-bold text-indigo-600 hover:text-indigo-800 transition-colors"
+                                      }`}
                                   >
-                                    VIEW SITE →
-                                  </button>
-                                )}
+                                    {rec.priority} PRIORITY
+                                  </span>
+                                  {rec.coords && (
+                                    <button
+                                      onClick={() =>
+                                        setMapCenter({
+                                          lat: rec.coords![1],
+                                          lng: rec.coords![0],
+                                          zoom: 10,
+                                        })
+                                      }
+                                      className="text-xs font-bold text-indigo-600 hover:text-indigo-800 transition-colors"
+                                    >
+                                      VIEW SITE →
+                                    </button>
+                                  )}
+                                </div>
+                                <p className="text-sm text-gray-900 font-bold leading-snug">
+                                  {rec.message}
+                                </p>
+                                <p className="text-xs text-gray-600 mt-1.5">
+                                  {rec.action}
+                                </p>
                               </div>
-                              <p className="text-sm text-gray-900 font-bold leading-snug">
-                                {rec.message}
-                              </p>
-                              <p className="text-xs text-gray-600 mt-1.5">
-                                {rec.action}
-                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+                      {/* Stats Grid */}
+                      {facilityInsights?.coverage_stats && (
+                        <div className="lg:col-span-12 grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                          <div className="bg-blue-50/50 rounded-2xl p-4 border border-blue-100/50">
+                            <p className="text-[10px] font-bold text-blue-600 uppercase mb-1">
+                              Population Reach
+                            </p>
+                            <p className="text-2xl font-black text-blue-900">
+                              {(
+                                facilityInsights.coverage_stats.total_population /
+                                1000000
+                              ).toFixed(1)}
+                              M
+                            </p>
+                            <p className="text-xs text-blue-600/70 mt-1">
+                              Total across{" "}
+                              {facilityInsights.coverage_stats.facility_count}{" "}
+                              regions
+                            </p>
+                          </div>
+
+                          <div className="bg-orange-50/50 rounded-2xl p-4 border border-orange-100/50">
+                            <p className="text-[10px] font-bold text-orange-600 uppercase mb-1">
+                              Coverage Gap
+                            </p>
+                            <p className="text-2xl font-black text-orange-900">
+                              {facilityInsights.largest_empty_circle?.radius_km
+                                ? `${facilityInsights.largest_empty_circle.radius_km.toFixed(1)}km`
+                                : "N/A"}
+                            </p>
+                            <p className="text-xs text-orange-600/70 mt-1">
+                              Max underserved radius
+                            </p>
+                            {facilityInsights.largest_empty_circle?.center && (
+                              <button
+                                onClick={() => {
+                                  const [lng, lat] =
+                                    facilityInsights.largest_empty_circle!.center;
+                                  setMapCenter({ lat, lng, zoom: 8 });
+                                }}
+                                className="mt-2 text-[10px] font-bold text-orange-700 hover:underline"
+                              >
+                                LOCATE GAP →
+                              </button>
+                            )}
+                          </div>
+
+                          <div className="bg-purple-50/50 rounded-2xl p-4 border border-purple-100/50">
+                            <p className="text-[10px] font-bold text-purple-600 uppercase mb-1">
+                              Service Density
+                            </p>
+                            <p className="text-2xl font-black text-purple-900">
+                              {(
+                                facilityInsights.coverage_stats
+                                  .avg_population_per_facility / 1000
+                              ).toFixed(0)}
+                              K
+                            </p>
+                            <p className="text-xs text-purple-600/70 mt-1">
+                              Avg people per facility
+                            </p>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Top 5 Lists */}
+                      {insights && (
+                        <div className="lg:col-span-12 grid grid-cols-1 md:grid-cols-2 gap-8 pt-8 border-t border-gray-100">
+                          {/* Top by Population */}
+                          <div className="bg-gray-50/50 rounded-2xl p-6">
+                            <h4 className="text-sm font-bold text-gray-800 mb-4 flex items-center gap-2">
+                              High Load Regions
+                            </h4>
+                            <div className="space-y-3">
+                              {insights.topByPopulation.map((item, i) => (
+                                <button
+                                  key={`pop-${i}`}
+                                  onClick={() =>
+                                    setMapCenter({
+                                      lat: item.lat,
+                                      lng: item.lng,
+                                      zoom: 10,
+                                    })
+                                  }
+                                  className="w-full flex justify-between items-center group hover:cursor-pointer"
+                                >
+                                  <span className="text-sm text-gray-700 font-medium group-hover:text-indigo-600 transition-colors truncate flex-1 text-left">
+                                    {i + 1}. {item.name}
+                                  </span>
+                                  <span className="text-sm font-bold text-gray-900 bg-white px-2 py-0.5 rounded-md shadow-sm">
+                                    {(item.population / 1000000).toFixed(1)}M
+                                  </span>
+                                </button>
+                              ))}
                             </div>
                           </div>
-                        ))}
-                      </div>
+
+                          {/* Top by Density */}
+                          <div className="bg-gray-50/50 rounded-2xl p-6">
+                            <h4 className="text-sm font-bold text-gray-800 mb-4 flex items-center gap-2">
+                              Dense Regions
+                            </h4>
+                            <div className="space-y-3">
+                              {insights.topByDensity.map((item, i) => (
+                                <button
+                                  key={`den-${i}`}
+                                  onClick={() =>
+                                    setMapCenter({
+                                      lat: item.lat,
+                                      lng: item.lng,
+                                      zoom: 10,
+                                    })
+                                  }
+                                  className="w-full flex justify-between items-center group hover:cursor-pointer"
+                                >
+                                  <span className="text-sm text-gray-700 font-medium group-hover:text-indigo-600 transition-colors truncate flex-1 text-left">
+                                    {i + 1}. {item.name}
+                                  </span>
+                                  <span className="text-sm font-bold text-gray-900 bg-white px-2 py-0.5 rounded-md shadow-sm">
+                                    {item.density.toFixed(0)}/km²
+                                  </span>
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </div>
-                  )}
-
-                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-                    {/* Stats Grid */}
-                    {facilityInsights?.coverage_stats && (
-                      <div className="lg:col-span-12 grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-                        <div className="bg-blue-50/50 rounded-2xl p-4 border border-blue-100/50">
-                          <p className="text-[10px] font-bold text-blue-600 uppercase mb-1">
-                            Population Reach
-                          </p>
-                          <p className="text-2xl font-black text-blue-900">
-                            {(
-                              facilityInsights.coverage_stats.total_population /
-                              1000000
-                            ).toFixed(1)}
-                            M
-                          </p>
-                          <p className="text-xs text-blue-600/70 mt-1">
-                            Total across{" "}
-                            {facilityInsights.coverage_stats.facility_count}{" "}
-                            regions
-                          </p>
-                        </div>
-
-                        <div className="bg-orange-50/50 rounded-2xl p-4 border border-orange-100/50">
-                          <p className="text-[10px] font-bold text-orange-600 uppercase mb-1">
-                            Coverage Gap
-                          </p>
-                          <p className="text-2xl font-black text-orange-900">
-                            {facilityInsights.largest_empty_circle?.radius_km
-                              ? `${facilityInsights.largest_empty_circle.radius_km.toFixed(1)}km`
-                              : "N/A"}
-                          </p>
-                          <p className="text-xs text-orange-600/70 mt-1">
-                            Max underserved radius
-                          </p>
-                          {facilityInsights.largest_empty_circle?.center && (
-                            <button
-                              onClick={() => {
-                                const [lng, lat] =
-                                  facilityInsights.largest_empty_circle!.center;
-                                setMapCenter({ lat, lng, zoom: 8 });
-                              }}
-                              className="mt-2 text-[10px] font-bold text-orange-700 hover:underline"
-                            >
-                              LOCATE GAP →
-                            </button>
-                          )}
-                        </div>
-
-                        <div className="bg-purple-50/50 rounded-2xl p-4 border border-purple-100/50">
-                          <p className="text-[10px] font-bold text-purple-600 uppercase mb-1">
-                            Service Density
-                          </p>
-                          <p className="text-2xl font-black text-purple-900">
-                            {(
-                              facilityInsights.coverage_stats
-                                .avg_population_per_facility / 1000
-                            ).toFixed(0)}
-                            K
-                          </p>
-                          <p className="text-xs text-purple-600/70 mt-1">
-                            Avg people per facility
-                          </p>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Top 5 Lists */}
-                    {insights && (
-                      <div className="lg:col-span-12 grid grid-cols-1 md:grid-cols-2 gap-8 pt-8 border-t border-gray-100">
-                        {/* Top by Population */}
-                        <div className="bg-gray-50/50 rounded-2xl p-6">
-                          <h4 className="text-sm font-bold text-gray-800 mb-4 flex items-center gap-2">
-                            High Load Regions
-                          </h4>
-                          <div className="space-y-3">
-                            {insights.topByPopulation.map((item, i) => (
-                              <button
-                                key={`pop-${i}`}
-                                onClick={() =>
-                                  setMapCenter({
-                                    lat: item.lat,
-                                    lng: item.lng,
-                                    zoom: 10,
-                                  })
-                                }
-                                className="w-full flex justify-between items-center group hover:cursor-pointer"
-                              >
-                                <span className="text-sm text-gray-700 font-medium group-hover:text-indigo-600 transition-colors truncate flex-1 text-left">
-                                  {i + 1}. {item.name}
-                                </span>
-                                <span className="text-sm font-bold text-gray-900 bg-white px-2 py-0.5 rounded-md shadow-sm">
-                                  {(item.population / 1000000).toFixed(1)}M
-                                </span>
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-
-                        {/* Top by Density */}
-                        <div className="bg-gray-50/50 rounded-2xl p-6">
-                          <h4 className="text-sm font-bold text-gray-800 mb-4 flex items-center gap-2">
-                            Dense Regions
-                          </h4>
-                          <div className="space-y-3">
-                            {insights.topByDensity.map((item, i) => (
-                              <button
-                                key={`den-${i}`}
-                                onClick={() =>
-                                  setMapCenter({
-                                    lat: item.lat,
-                                    lng: item.lng,
-                                    zoom: 10,
-                                  })
-                                }
-                                className="w-full flex justify-between items-center group hover:cursor-pointer"
-                              >
-                                <span className="text-sm text-gray-700 font-medium group-hover:text-indigo-600 transition-colors truncate flex-1 text-left">
-                                  {i + 1}. {item.name}
-                                </span>
-                                <span className="text-sm font-bold text-gray-900 bg-white px-2 py-0.5 rounded-md shadow-sm">
-                                  {item.density.toFixed(0)}/km²
-                                </span>
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      </div>
-                    )}
                   </div>
-                </div>
 
-                {!facilityInsights &&
-                  facilities.length >= 3 &&
-                  !isComputing && (
-                    <div className="p-12 bg-gray-50 text-center border-t border-gray-100">
-                      <p className="text-gray-500 text-sm mb-4">
-                        Detailed coverage analytics and underscores are ready to
-                        be computed.
-                      </p>
-                      <button
-                        onClick={computeVoronoi}
-                        className="px-8 py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200"
-                      >
-                        Compute Advanced Insights
-                      </button>
-                    </div>
-                  )}
-              </div>
-            )}
+                  {!facilityInsights &&
+                    facilities.length >= 3 &&
+                    !isComputing && (
+                      <div className="p-12 bg-gray-50 text-center border-t border-gray-100">
+                        <p className="text-gray-500 text-sm mb-4">
+                          Detailed coverage analytics and underscores are ready to
+                          be computed.
+                        </p>
+                        <button
+                          onClick={computeVoronoi}
+                          className="px-8 py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200"
+                        >
+                          Compute Advanced Insights
+                        </button>
+                      </div>
+                    )}
+                </div>
+              )}
           </div>
         </div>
       </main>

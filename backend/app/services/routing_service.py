@@ -28,7 +28,7 @@ class RouteResult:
 @dataclass
 class RoutingConfig:
     """Configuration for the routing service."""
-    base_url: str = "http://localhost:5000"
+    base_url: str = "http://localhost:5001"
     profile: str = "car"  # car, bike, foot
     timeout_seconds: float = 10.0
     max_retries: int = 3
