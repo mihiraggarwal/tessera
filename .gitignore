@@ -10,3 +10,12 @@ todo.*
 backend/app/cache/
 backend/app/temp/
 *.pyc
+
+*/__pycache__/*
+**/__pycache__/*
+*/*/__pycache__/*
+*/*/*/__pycache__/*
+
+osrm-data
+backend/app/routers/__pycache__
+

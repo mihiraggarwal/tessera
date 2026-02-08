@@ -951,148 +951,150 @@ export default function Home() {
                 />
               </div>
 
-              {/* Population Legend - Side Panel */}
-              {voronoiData && showVoronoi && (
-                <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-4 flex-shrink-0 w-32 h-44 self-start">
-                  <div className="font-semibold text-black mb-3 text-sm">
-                    Population
+              <div className="flex flex-col gap-2">
+                {/* Population Legend - Side Panel */}
+                {voronoiData && showVoronoi && (
+                  <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-4 flex-shrink-0 w-32 h-44 self-start">
+                    <div className="font-semibold text-black mb-3 text-sm">
+                      Population
+                    </div>
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        <div
+                          className="w-4 h-3 rounded"
+                          style={{ backgroundColor: "#800026" }}
+                        ></div>
+                        <span className="text-xs text-black">&gt; 10M</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div
+                          className="w-4 h-3 rounded"
+                          style={{ backgroundColor: "#E31A1C" }}
+                        ></div>
+                        <span className="text-xs text-black">2M - 10M</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div
+                          className="w-4 h-3 rounded"
+                          style={{ backgroundColor: "#FD8D3C" }}
+                        ></div>
+                        <span className="text-xs text-black">500K - 2M</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div
+                          className="w-4 h-3 rounded"
+                          style={{ backgroundColor: "#FED976" }}
+                        ></div>
+                        <span className="text-xs text-black">100K - 500K</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div
+                          className="w-4 h-3 rounded"
+                          style={{ backgroundColor: "#FFEDA0" }}
+                        ></div>
+                        <span className="text-xs text-black">&lt; 100K</span>
+                      </div>
+                    </div>
                   </div>
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2">
-                      <div
-                        className="w-4 h-3 rounded"
-                        style={{ backgroundColor: "#800026" }}
-                      ></div>
-                      <span className="text-xs text-black">&gt; 10M</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <div
-                        className="w-4 h-3 rounded"
-                        style={{ backgroundColor: "#E31A1C" }}
-                      ></div>
-                      <span className="text-xs text-black">2M - 10M</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <div
-                        className="w-4 h-3 rounded"
-                        style={{ backgroundColor: "#FD8D3C" }}
-                      ></div>
-                      <span className="text-xs text-black">500K - 2M</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <div
-                        className="w-4 h-3 rounded"
-                        style={{ backgroundColor: "#FED976" }}
-                      ></div>
-                      <span className="text-xs text-black">100K - 500K</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <div
-                        className="w-4 h-3 rounded"
-                        style={{ backgroundColor: "#FFEDA0" }}
-                      ></div>
-                      <span className="text-xs text-black">&lt; 100K</span>
-                    </div>
-                  </div>
-                </div>
-              )}
+                )}
 
-              {/* Heatmap Legend */}
-              {activeHeatmapType && (
-                <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-4 flex-shrink-0 w-40 self-start animate-fade-in">
-                  <div className="font-semibold text-black mb-1 text-sm">
-                    {activeHeatmapType === "emergency"
-                      ? "🚨 Risk Level"
-                      : "🏠 Life Quality"}
+                {/* Heatmap Legend */}
+                {activeHeatmapType && (
+                  <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-4 flex-shrink-0 w-40 self-start animate-fade-in">
+                    <div className="font-semibold text-black mb-1 text-sm">
+                      {activeHeatmapType === "emergency"
+                        ? "Risk Level"
+                        : "Life Quality"}
+                    </div>
+                    <div className="text-[10px] text-gray-500 mb-2">
+                      {activeHeatmapType === "emergency"
+                        ? "Nearness to facilities"
+                        : "Accessibility index"}
+                    </div>
+                    <div className="space-y-1.5">
+                      {activeHeatmapType === "emergency" ? (
+                        <>
+                          <div className="flex items-center gap-2">
+                            <div
+                              className="w-4 h-3 rounded"
+                              style={{ backgroundColor: "#800026" }}
+                            ></div>
+                            <span className="text-[11px] text-black font-medium">
+                              Critical
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <div
+                              className="w-4 h-3 rounded"
+                              style={{ backgroundColor: "#E31A1C" }}
+                            ></div>
+                            <span className="text-[11px] text-black font-medium">
+                              High
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <div
+                              className="w-4 h-3 rounded"
+                              style={{ backgroundColor: "#FC4E2A" }}
+                            ></div>
+                            <span className="text-[11px] text-black font-medium">
+                              Moderate
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <div
+                              className="w-4 h-3 rounded"
+                              style={{ backgroundColor: "#FED976" }}
+                            ></div>
+                            <span className="text-[11px] text-black font-medium">
+                              Low
+                            </span>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <div className="flex items-center gap-2">
+                            <div
+                              className="w-4 h-3 rounded"
+                              style={{ backgroundColor: "#006837" }}
+                            ></div>
+                            <span className="text-[11px] text-black font-medium">
+                              Excellent
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <div
+                              className="w-4 h-3 rounded"
+                              style={{ backgroundColor: "#31a354" }}
+                            ></div>
+                            <span className="text-[11px] text-black font-medium">
+                              Good
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <div
+                              className="w-4 h-3 rounded"
+                              style={{ backgroundColor: "#78c679" }}
+                            ></div>
+                            <span className="text-[11px] text-black font-medium">
+                              Fair
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <div
+                              className="w-4 h-3 rounded"
+                              style={{ backgroundColor: "#c2e699" }}
+                            ></div>
+                            <span className="text-[11px] text-black font-medium">
+                              Basic
+                            </span>
+                          </div>
+                        </>
+                      )}
+                    </div>
                   </div>
-                  <div className="text-[10px] text-gray-500 mb-2">
-                    {activeHeatmapType === "emergency"
-                      ? "Nearness to facilities"
-                      : "Accessibility index"}
-                  </div>
-                  <div className="space-y-1.5">
-                    {activeHeatmapType === "emergency" ? (
-                      <>
-                        <div className="flex items-center gap-2">
-                          <div
-                            className="w-4 h-3 rounded"
-                            style={{ backgroundColor: "#800026" }}
-                          ></div>
-                          <span className="text-[11px] text-black font-medium">
-                            Critical
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <div
-                            className="w-4 h-3 rounded"
-                            style={{ backgroundColor: "#E31A1C" }}
-                          ></div>
-                          <span className="text-[11px] text-black font-medium">
-                            High
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <div
-                            className="w-4 h-3 rounded"
-                            style={{ backgroundColor: "#FC4E2A" }}
-                          ></div>
-                          <span className="text-[11px] text-black font-medium">
-                            Moderate
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <div
-                            className="w-4 h-3 rounded"
-                            style={{ backgroundColor: "#FED976" }}
-                          ></div>
-                          <span className="text-[11px] text-black font-medium">
-                            Low
-                          </span>
-                        </div>
-                      </>
-                    ) : (
-                      <>
-                        <div className="flex items-center gap-2">
-                          <div
-                            className="w-4 h-3 rounded"
-                            style={{ backgroundColor: "#006837" }}
-                          ></div>
-                          <span className="text-[11px] text-black font-medium">
-                            Excellent
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <div
-                            className="w-4 h-3 rounded"
-                            style={{ backgroundColor: "#31a354" }}
-                          ></div>
-                          <span className="text-[11px] text-black font-medium">
-                            Good
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <div
-                            className="w-4 h-3 rounded"
-                            style={{ backgroundColor: "#78c679" }}
-                          ></div>
-                          <span className="text-[11px] text-black font-medium">
-                            Fair
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <div
-                            className="w-4 h-3 rounded"
-                            style={{ backgroundColor: "#c2e699" }}
-                          ></div>
-                          <span className="text-[11px] text-black font-medium">
-                            Basic
-                          </span>
-                        </div>
-                      </>
-                    )}
-                  </div>
-                </div>
-              )}
+                )}
+              </div>
             </div>
 
             {/* Insights Panel - Below Map */}

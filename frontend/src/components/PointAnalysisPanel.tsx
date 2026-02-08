@@ -61,7 +61,7 @@ export default function PointAnalysisPanel({
         </div>
         <button
           onClick={onClose}
-          className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+          className="p-2 text-black hover:bg-gray-100 rounded-lg transition-colors"
         >
           <svg
             className="w-5 h-5"
@@ -263,7 +263,7 @@ export default function PointAnalysisPanel({
               {analysis.all_candidates.map((candidate) => (
                 <div
                   key={candidate.facility_id}
-                  className={`flex items-center justify-between p-2 rounded-lg text-xs ${
+                  className={`flex items-center text-black justify-between p-2 rounded-lg text-xs ${
                     candidate.route_rank === 1
                       ? "bg-green-50 border border-green-200"
                       : "bg-gray-50"
