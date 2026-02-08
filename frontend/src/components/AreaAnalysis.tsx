@@ -161,28 +161,26 @@ export default function AreaAnalysis({
   return (
     <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 transition-all duration-300">
       <h2 className="text-lg font-semibold text-gray-900 mb-4">
-        📊 Area Analysis
+        Area Analysis
       </h2>
 
       {/* Analysis Type Toggle */}
       <div className="flex gap-2 mb-4">
         <button
           onClick={() => setAnalysisType("emergency")}
-          className={`flex-1 py-2 px-4 rounded-lg font-medium transition-all ${
-            analysisType === "emergency"
+          className={`flex-1 py-2 px-4 rounded-lg font-medium transition-all ${analysisType === "emergency"
               ? "bg-red-500 text-white shadow-lg shadow-red-200"
               : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-          }`}
+            }`}
         >
           Emergency
         </button>
         <button
           onClick={() => setAnalysisType("living")}
-          className={`flex-1 py-2 px-4 rounded-lg font-medium transition-all ${
-            analysisType === "living"
+          className={`flex-1 py-2 px-4 rounded-lg font-medium transition-all ${analysisType === "living"
               ? "bg-green-500 text-white shadow-lg shadow-green-200"
               : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-          }`}
+            }`}
         >
           Living
         </button>
@@ -192,21 +190,19 @@ export default function AreaAnalysis({
       <div className="flex gap-2 mb-4">
         <button
           onClick={() => setInputMethod("pincode")}
-          className={`flex-1 py-2 px-3 rounded-lg text-sm transition-all ${
-            inputMethod === "pincode"
+          className={`flex-1 py-2 px-3 rounded-lg text-sm transition-all ${inputMethod === "pincode"
               ? "bg-blue-500 text-white"
               : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-          }`}
+            }`}
         >
           Enter Pincode
         </button>
         <button
           onClick={() => setInputMethod("location")}
-          className={`flex-1 py-2 px-3 rounded-lg text-sm transition-all ${
-            inputMethod === "location"
+          className={`flex-1 py-2 px-3 rounded-lg text-sm transition-all ${inputMethod === "location"
               ? "bg-blue-500 text-white"
               : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-          }`}
+            }`}
         >
           Use Location
         </button>
@@ -222,11 +218,10 @@ export default function AreaAnalysis({
             setHeatmapActive(newValue);
             if (onHeatmapToggle) onHeatmapToggle(newValue);
           }}
-          className={`text-[11px] py-1.5 px-2 rounded-lg font-bold border transition-all ${
-            heatmapActive === "emergency"
+          className={`text-[11px] py-1.5 px-2 rounded-lg font-bold border transition-all ${heatmapActive === "emergency"
               ? "bg-red-600 text-white border-red-600 shadow-md ring-2 ring-red-100"
               : "bg-white text-red-600 border-red-200 hover:bg-red-50"
-          }`}
+            }`}
         >
           {heatmapActive === "emergency"
             ? "Hide Risk Heatmap"
@@ -240,11 +235,10 @@ export default function AreaAnalysis({
             setHeatmapActive(newValue);
             if (onHeatmapToggle) onHeatmapToggle(newValue);
           }}
-          className={`text-[11px] py-1.5 px-2 rounded-lg font-bold border transition-all ${
-            heatmapActive === "living"
+          className={`text-[11px] py-1.5 px-2 rounded-lg font-bold border transition-all ${heatmapActive === "living"
               ? "bg-green-600 text-white border-green-600 shadow-md ring-2 ring-green-100"
               : "bg-white text-green-600 border-green-200 hover:bg-green-50"
-          }`}
+            }`}
         >
           {heatmapActive === "living"
             ? "Hide Quality Heatmap"
