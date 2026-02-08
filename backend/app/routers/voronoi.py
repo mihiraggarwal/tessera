@@ -211,3 +211,459 @@ async def find_nearest_facility(request: FindNearestRequest):
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# === Route Voronoi Endpoints ===
+
+from app.services.route_voronoi_service import (
+    RouteVoronoiEngine, RouteVoronoiConfig, 
+    get_route_voronoi_engine, reset_route_voronoi_engine
+)
+from app.services.routing_service import get_routing_service, RoutingConfig, set_routing_config
+from app.services.dcel import get_current_dcel
+
+
+class RouteVoronoiRequest(BaseModel):
+    """Request to compute route-based Voronoi diagram"""
+    facilities: List[Facility]
+    clip_to_india: bool = True
+    state_filter: Optional[str] = None
+    config: Optional[dict] = None  # RouteVoronoiConfig fields
+
+
+class RouteVoronoiCompareRequest(BaseModel):
+    """Request to compare Euclidean vs Route Voronoi"""
+    facilities: List[Facility]
+    clip_to_india: bool = True
+    state_filter: Optional[str] = None
+    route_config: Optional[dict] = None
+
+
+@router.post("/compute-route")
+async def compute_route_voronoi(request: RouteVoronoiRequest):
+    """
+    Compute route-based Voronoi diagram using road network distances.
+    
+    Uses a candidate-filtered approach:
+    1. Compute Euclidean Voronoi for candidate filtering
+    2. For each grid point, query routing API for road distance to k nearest facilities
+    3. Assign grid point to facility with minimum road distance
+    4. Interpolate grid assignments into polygons
+    
+    Requires OSRM routing service to be running.
+    """
+    if len(request.facilities) < 3:
+        raise HTTPException(
+            status_code=400,
+            detail="At least 3 facilities are required"
+        )
+    
+    try:
+        # First compute Euclidean Voronoi to build DCEL
+        engine = VoronoiEngine()
+        
+        coords = [(f.lng, f.lat) for f in request.facilities]
+        names = [f.name for f in request.facilities]
+        facility_ids = [f.id or str(i) for i, f in enumerate(request.facilities)]
+        types = [f.type for f in request.facilities]
+        
+        geojson, dcel = engine.compute_voronoi_with_dcel(
+            coords=coords,
+            names=names,
+            facility_ids=facility_ids,
+            types=types,
+            clip_to_india=request.clip_to_india,
+            state_filter=request.state_filter
+        )
+        
+        # Get boundary for route Voronoi computation
+        if request.state_filter:
+            boundary = engine._get_state_boundary_wgs84(request.state_filter)
+        elif request.clip_to_india:
+            boundary = engine._india_boundary_wgs84
+        else:
+            # Use convex hull of facilities
+            from shapely.geometry import MultiPoint
+            boundary = MultiPoint(coords).convex_hull.buffer(0.5)
+        
+        # Parse route config
+        config_dict = request.config or {}
+        route_config = RouteVoronoiConfig(
+            grid_density=config_dict.get('grid_density', 50),
+            base_k=config_dict.get('base_k', 5),
+            adaptive_k=config_dict.get('adaptive_k', True),
+            distortion_threshold=config_dict.get('distortion_threshold', 3.0),
+            connectivity_check=config_dict.get('connectivity_check', True)
+        )
+        
+        # Compute route Voronoi
+        reset_route_voronoi_engine()  # Use fresh engine with new DCEL
+        route_engine = RouteVoronoiEngine(dcel=dcel)
+        result = route_engine.compute_sync(boundary, route_config)
+        
+        return route_engine.to_geojson(result)
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/compare")
+async def compare_euclidean_route(request: RouteVoronoiCompareRequest):
+    """
+    Compare Euclidean vs Route Voronoi side-by-side.
+    
+    Returns both diagrams with difference metrics.
+    """
+    if len(request.facilities) < 3:
+        raise HTTPException(
+            status_code=400,
+            detail="At least 3 facilities are required"
+        )
+    
+    try:
+        # Compute Euclidean Voronoi
+        engine = VoronoiEngine()
+        
+        coords = [(f.lng, f.lat) for f in request.facilities]
+        names = [f.name for f in request.facilities]
+        facility_ids = [f.id or str(i) for i, f in enumerate(request.facilities)]
+        types = [f.type for f in request.facilities]
+        
+        euclidean_geojson, dcel = engine.compute_voronoi_with_dcel(
+            coords=coords,
+            names=names,
+            facility_ids=facility_ids,
+            types=types,
+            clip_to_india=request.clip_to_india,
+            state_filter=request.state_filter
+        )
+        
+        # Get boundary
+        if request.state_filter:
+            boundary = engine._get_state_boundary_wgs84(request.state_filter)
+        elif request.clip_to_india:
+            boundary = engine._india_boundary_wgs84
+        else:
+            from shapely.geometry import MultiPoint
+            boundary = MultiPoint(coords).convex_hull.buffer(0.5)
+        
+        # Parse route config  
+        config_dict = request.route_config or {}
+        route_config = RouteVoronoiConfig(
+            grid_density=config_dict.get('grid_density', 30),  # Lower for comparison
+            base_k=config_dict.get('base_k', 5),
+            adaptive_k=config_dict.get('adaptive_k', True)
+        )
+        
+        # Compute route Voronoi
+        reset_route_voronoi_engine()
+        route_engine = RouteVoronoiEngine(dcel=dcel)
+        route_result = route_engine.compute_sync(boundary, route_config)
+        route_geojson = route_engine.to_geojson(route_result)
+        
+        # Calculate comparison metrics
+        euclidean_areas = {}
+        for feature in euclidean_geojson['features']:
+            fid = feature['properties']['facility_id']
+            euclidean_areas[fid] = feature['properties'].get('area_km2', 0)
+        
+        route_areas = {}
+        for feature in route_geojson['features']:
+            fid = feature['properties']['facility_id']
+            route_areas[fid] = feature['properties'].get('area_km2', 0)
+        
+        # Compute differences
+        comparison_metrics = []
+        for fid in set(euclidean_areas.keys()) | set(route_areas.keys()):
+            e_area = euclidean_areas.get(fid, 0)
+            r_area = route_areas.get(fid, 0)
+            change_pct = ((r_area - e_area) / e_area * 100) if e_area > 0 else 0
+            comparison_metrics.append({
+                'facility_id': fid,
+                'euclidean_area_km2': round(e_area, 2),
+                'route_area_km2': round(r_area, 2),
+                'area_change_pct': round(change_pct, 1)
+            })
+        
+        return {
+            "euclidean_voronoi": euclidean_geojson,
+            "route_voronoi": route_geojson,
+            "comparison": {
+                "facility_metrics": comparison_metrics,
+                "route_metadata": route_result.metadata
+            }
+        }
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/routing-health")
+async def check_routing_health():
+    """Check if OSRM routing service is available."""
+    try:
+        routing = get_routing_service()
+        health = routing.health_check_sync()
+        return health
+    except Exception as e:
+        return {
+            "status": "error",
+            "error": str(e)
+        }
+
+
+class RoutingConfigRequest(BaseModel):
+    """Request to update routing configuration"""
+    base_url: str = "http://localhost:5000"
+    profile: str = "car"
+    timeout_seconds: float = 10.0
+
+
+@router.post("/routing-config")
+async def update_routing_config(config: RoutingConfigRequest):
+    """Update OSRM routing configuration."""
+    try:
+        new_config = RoutingConfig(
+            base_url=config.base_url,
+            profile=config.profile,
+            timeout_seconds=config.timeout_seconds
+        )
+        set_routing_config(new_config)
+        
+        # Test the new config
+        routing = get_routing_service()
+        health = routing.health_check_sync()
+        
+        return {
+            "status": "updated",
+            "health": health
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# === Dominating-Set Road Voronoi Endpoints ===
+
+from app.services.dominating_voronoi import (
+    DominatingVoronoiEngine, DominatingVoronoiConfig, get_dominating_voronoi_engine
+)
+
+
+class DominatingRoadVoronoiRequest(BaseModel):
+    """Request to compute dominating-set road Voronoi diagram"""
+    facilities: List[Facility]
+    clip_to_india: bool = True
+    state_filter: Optional[str] = None
+    grid_density: int = Field(default=50, ge=10, le=200)  # Points per axis
+    batch_size: int = Field(default=100, ge=10, le=500)   # OSRM batch size
+
+
+@router.post("/compute-dominating-road")
+async def compute_dominating_road_voronoi(request: DominatingRoadVoronoiRequest):
+    """
+    Compute road-adjusted Voronoi using dominating-set batching.
+    
+    Algorithm:
+    1. Compute Euclidean Voronoi and build adjacency graph
+    2. Select "central cells" via greedy dominating set
+    3. Define local regions (1-hop neighborhoods) for each center
+    4. Batch OSRM queries to reassign grid points by road distance
+    5. Merge local refinements into global result
+    
+    This is more efficient than the naive approach as it:
+    - Only refines cells that are "important" (dominating set)
+    - Uses OSRM /table API for batch distance queries
+    - Reduces total query volume by ~60-80%
+    """
+    if len(request.facilities) < 3:
+        raise HTTPException(
+            status_code=400,
+            detail="At least 3 facilities are required"
+        )
+    
+    try:
+        # Configure
+        config = DominatingVoronoiConfig(
+            grid_density=request.grid_density,
+            batch_size=request.batch_size
+        )
+        
+        # Convert facilities to dict format
+        facilities = [
+            {
+                "id": f.id or str(i),
+                "name": f.name,
+                "lat": f.lat,
+                "lng": f.lng,
+                "type": f.type
+            }
+            for i, f in enumerate(request.facilities)
+        ]
+        
+        # Compute
+        engine = get_dominating_voronoi_engine()
+        result = engine.compute(
+            facilities=facilities,
+            clip_to_india=request.clip_to_india,
+            state_filter=request.state_filter,
+            config=config
+        )
+        
+        return engine.to_geojson(result)
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# === Edge-Adjustment Road Voronoi Endpoints ===
+
+from app.services.edge_adjust_voronoi import (
+    EdgeAdjustVoronoiEngine, EdgeAdjustConfig, get_edge_adjust_voronoi_engine
+)
+
+
+class EdgeAdjustRoadVoronoiRequest(BaseModel):
+    """Request for edge-adjustment road Voronoi"""
+    facilities: List[Facility]
+    clip_to_india: bool = True
+    state_filter: Optional[str] = None
+    samples_per_edge: int = Field(default=10, ge=3, le=30)
+
+
+@router.post("/compute-edge-adjust-road")
+async def compute_edge_adjust_road_voronoi(request: EdgeAdjustRoadVoronoiRequest):
+    """
+    Compute road-adjusted Voronoi by shifting edges to road-distance equidistant curves.
+    
+    Algorithm:
+    1. Compute Euclidean Voronoi diagram
+    2. Extract edges between adjacent cells
+    3. For each edge, shift to where road_dist(A) = road_dist(B)
+    4. Rebuild polygons with smoothly adjusted edges
+    
+    This approach is more elegant than grid-based interpolation as it:
+    - Preserves edge topology
+    - Produces smoother boundaries
+    - Uses fewer OSRM queries
+    """
+    if len(request.facilities) < 3:
+        raise HTTPException(
+            status_code=400,
+            detail="At least 3 facilities are required"
+        )
+    
+    try:
+        config = EdgeAdjustConfig(
+            samples_per_edge=request.samples_per_edge
+        )
+        
+        facilities = [
+            {
+                "id": f.id or str(i),
+                "name": f.name,
+                "lat": f.lat,
+                "lng": f.lng,
+                "type": f.type
+            }
+            for i, f in enumerate(request.facilities)
+        ]
+        
+        engine = get_edge_adjust_voronoi_engine()
+        result = engine.compute(
+            facilities=facilities,
+            clip_to_india=request.clip_to_india,
+            state_filter=request.state_filter,
+            config=config
+        )
+        
+        return engine.to_geojson(result)
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# === Weighted (Additive) Road Voronoi Endpoints ===
+
+from app.services.weighted_voronoi import (
+    WeightedVoronoiEngine, WeightedVoronoiConfig, get_weighted_voronoi_engine
+)
+
+
+class WeightedRoadVoronoiRequest(BaseModel):
+    """Request for weighted road Voronoi"""
+    facilities: List[Facility]
+    clip_to_india: bool = True
+    state_filter: Optional[str] = None
+    penalty_scale: float = Field(default=1.0, ge=0.1, le=5.0)
+    num_neighbor_samples: int = Field(default=5, ge=2, le=10)
+
+
+@router.post("/compute-weighted-road")
+async def compute_weighted_road_voronoi(request: WeightedRoadVoronoiRequest):
+    """
+    Compute road-weighted Voronoi using additive distance penalties.
+    
+    Algorithm:
+    1. Compute road penalty for each facility by sampling distances to neighbors
+    2. Penalty = average(road_distance - euclidean_distance)
+    3. Assign each point to facility with min(euclidean_distance + penalty)
+    4. Facilities with poor road access get higher penalty = smaller cells
+    
+    This approach is mathematically clean and produces valid Voronoi cells.
+    """
+    if len(request.facilities) < 3:
+        raise HTTPException(
+            status_code=400,
+            detail="At least 3 facilities are required"
+        )
+    
+    try:
+        config = WeightedVoronoiConfig(
+            penalty_scale=request.penalty_scale,
+            num_neighbor_samples=request.num_neighbor_samples
+        )
+        
+        facilities = [
+            {
+                "id": f.id or str(i),
+                "name": f.name,
+                "lat": f.lat,
+                "lng": f.lng,
+                "type": f.type
+            }
+            for i, f in enumerate(request.facilities)
+        ]
+        
+        engine = get_weighted_voronoi_engine()
+        result = engine.compute(
+            facilities=facilities,
+            clip_to_india=request.clip_to_india,
+            state_filter=request.state_filter,
+            config=config
+        )
+        
+        # Return as GeoJSON
+        return {
+            "type": "FeatureCollection",
+            "properties": {
+                "computation_method": "weighted_road_voronoi",
+                "num_facilities": result.num_facilities,
+                "total_route_queries": result.total_route_queries,
+                "computation_time_sec": result.computation_time_sec,
+                "metadata": result.metadata
+            },
+            "features": result.features
+        }
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))

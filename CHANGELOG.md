@@ -20,6 +20,22 @@ All notable changes to Tessera will be documented in this file.
 
 ---
 
+## [0.3.0] - 2026-02-07
+
+### Added
+
+**Route-Distance Voronoi Diagrams**
+
+- `routing_service.py` - OSRM integration with batch distance queries
+- `route_voronoi_service.py` - Candidate-filtered route Voronoi engine using grid sampling & Delaunay interpolation
+- DCEL enhancements: `k_nearest_neighbors()` and `adaptive_k()` for efficient candidate filtering
+- `/api/voronoi/compute-route` - Compute route-based Voronoi using road network
+- `/api/voronoi/compare` - Compare Euclidean vs route Voronoi side-by-side
+- `/api/voronoi/routing-health` - Check OSRM service status
+- `/api/voronoi/routing-config` - Configure OSRM connection
+- Frontend route distance toggle with health indicator
+- Docker setup for OSRM with India road data
+
 ## [0.2.0] - 2026-02-06
 
 ### Added
